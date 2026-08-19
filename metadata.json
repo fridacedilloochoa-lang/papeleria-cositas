@@ -1,0 +1,6 @@
+{
+  "name": "Papelería La Señora Cositas - Catálogo y Apartados",
+  "description": "Catálogo interactivo con temática Tiffany y Rosa, descarga de catálogo PDF con precios, existencias y costos, reportes de ventas y ganancias por día en Excel, y control de apartados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
