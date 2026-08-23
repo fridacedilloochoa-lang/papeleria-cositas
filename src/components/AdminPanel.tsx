@@ -52,6 +52,7 @@ interface AdminPanelProps {
   onUpdateApartadoStatus: (id: string, status: ApartadoStatus) => Promise<void>;
   onDeleteApartado: (id: string) => Promise<void>;
   onUpdateConfig: (newConfig: Partial<StoreConfig>) => Promise<void>;
+  onDeleteCategory: (categoryName: string) => Promise<void>;
   onResetToDefaults: () => Promise<void>;
 }
 
@@ -72,6 +73,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateApartadoStatus,
   onDeleteApartado,
   onUpdateConfig,
+  onDeleteCategory,
   onResetToDefaults,
 }) => {
   const [activeTab, setActiveTab] = useState<'apartados' | 'inventory' | 'sales_report' | 'settings'>('apartados');
@@ -828,7 +830,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 },
                               });
                             }}
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+                            className="p-2 text-rose-600 bg-rose-50 border border-rose-200 hover:text-rose-700 hover:bg-rose-100 rounded-xl transition shrink-0"
                             title="Eliminar apartado"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1422,6 +1424,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                   )}
                 </form>
+              </div>
+
+              {/* Manage Categories */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <h3 className="font-bold text-slate-800 mb-1">Pestañas / Categorías</h3>
+                <p className="text-xs text-slate-500 mb-4">
+                  Estas son las pestañas que ven tus clientas en la tienda. Puedes eliminar las que no uses (solo si ningún producto la tiene asignada).
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {config.categories.filter(c => c !== 'Todas' && c !== 'Todos').map(cat => (
+                    <span
+                      key={cat}
+                      className="flex items-center gap-2 pl-3 pr-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
+                    >
+                      {cat}
+                      <button
+                        type="button"
+                        onClick={() => setConfirmModal({
+                          isOpen: true,
+                          title: 'Eliminar Categoría',
+                          message: `¿Seguro que quieres eliminar la pestaña "${cat}"? Esto solo funciona si ningún producto la está usando.`,
+                          onConfirm: () => {
+                            onDeleteCategory(cat);
+                            setConfirmModal(null);
+                          },
+                        })}
+                        className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                        title={`Eliminar categoría ${cat}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
               </div>
 
               {/* Reset to initial data */}
