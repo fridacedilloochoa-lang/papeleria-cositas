@@ -179,6 +179,13 @@ export default function App() {
   // Products CRUD handlers
   const handleSaveProduct = async (productData: Partial<Product>) => {
     try {
+      // Si el producto trae una categoría que todavía no existe en la lista
+      // oficial de pestañas, la agregamos para que quede disponible de verdad.
+      if (productData.category && !config.categories.includes(productData.category)) {
+        const updatedCategories = [...config.categories, productData.category];
+        await handleUpdateConfig({ categories: updatedCategories });
+      }
+
       if (productData.id) {
         // Edit
         const updated = await api.updateProduct(productData.id, productData);
@@ -283,6 +290,22 @@ export default function App() {
     if (newConfig.themePreference) {
       setCurrentTheme(newConfig.themePreference);
       localStorage.setItem('kawaii_theme', newConfig.themePreference);
+    }
+  };
+
+  const handleDeleteCategory = async (categoryName: string) => {
+    const productsUsingIt = products.filter(p => p.category === categoryName).length;
+    if (productsUsingIt > 0) {
+      showToast(`⚠️ No se puede eliminar: hay ${productsUsingIt} producto(s) usando "${categoryName}". Cámbiales la categoría primero.`);
+      return;
+    }
+    try {
+      const updatedCategories = config.categories.filter(c => c !== categoryName);
+      await handleUpdateConfig({ categories: updatedCategories });
+      showToast(`🗑️ Categoría "${categoryName}" eliminada`);
+    } catch (err) {
+      console.error('Error eliminando categoría:', err);
+      showToast('❌ No se pudo eliminar la categoría. Revisa tu conexión a Supabase.');
     }
   };
 
@@ -794,6 +817,7 @@ export default function App() {
         products={products}
         apartados={apartados}
         config={config}
+        onDeleteCategory={handleDeleteCategory}
         currency={config.currency}
         onOpenNewProductModal={() => {
           setProductToEdit(null);
