@@ -80,6 +80,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // Tracks design IDs whose image is still being uploaded to Supabase Storage.
+  // While this set is non-empty, saving must be blocked to avoid persisting
+  // giant base64 strings into the database (which caused statement timeouts).
+  const [uploadingIds, setUploadingIds] = useState<Set<string>>(new Set());
 
   const replaceFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -148,6 +152,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               imageUrl: rawResult,
             }
           ]);
+          setUploadingIds(prev => new Set(prev).add(tempId));
 
           // Upload to Supabase Storage to persist permanently
           try {
@@ -158,6 +163,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           } catch (uploadErr) {
             console.error('No se pudo subir la imagen a Supabase Storage:', uploadErr);
             setFormError('⚠️ La imagen no se pudo subir a almacenamiento en línea. Configura Supabase antes de guardar (ver README.md).');
+          } finally {
+            setUploadingIds(prev => {
+              const next = new Set(prev);
+              next.delete(tempId);
+              return next;
+            });
           }
         }
       };
@@ -183,6 +194,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     reader.onload = async (loadEvt) => {
       const rawResult = loadEvt.target?.result as string;
       if (rawResult) {
+        const targetId = designs[targetIndex]?.id;
         setDesigns(prev => {
           const updated = [...prev];
           if (updated[targetIndex]) {
@@ -194,6 +206,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           return updated;
         });
         setEditingImageIndex(null);
+        if (targetId) {
+          setUploadingIds(prev => new Set(prev).add(targetId));
+        }
 
         // Upload and replace with permanent URL
         try {
@@ -213,6 +228,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         } catch (uploadErr) {
           console.error('No se pudo subir la imagen a Supabase Storage:', uploadErr);
           setFormError('⚠️ La imagen no se pudo subir a almacenamiento en línea. Configura Supabase antes de guardar (ver README.md).');
+        } finally {
+          if (targetId) {
+            setUploadingIds(prev => {
+              const next = new Set(prev);
+              next.delete(targetId);
+              return next;
+            });
+          }
         }
       }
     };
@@ -329,6 +352,19 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     if (designs.length === 0) {
       setFormError('Debes agregar al menos una imagen del producto.');
+      return;
+    }
+
+    if (uploadingIds.size > 0) {
+      setFormError('⏳ Espera a que las imágenes terminen de subirse antes de guardar.');
+      return;
+    }
+
+    // Safety net: never persist a raw base64 image (this is what caused the
+    // database to bloat and time out before). If one somehow slipped through,
+    // block the save instead of saving a multi-megabyte string.
+    if (designs.some(d => d.imageUrl?.startsWith('data:image'))) {
+      setFormError('⚠️ Una imagen no terminó de subirse correctamente. Vuelve a seleccionarla e intenta de nuevo.');
       return;
     }
 
@@ -930,11 +966,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             <button
               id="save-product-submit-btn"
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || uploadingIds.size > 0}
               className="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-2 disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
-              <span>{isSaving ? 'Guardando...' : (productToEdit ? 'Actualizar Producto' : 'Guardar en Catálogo')}</span>
+              <span>{isSaving ? 'Guardando...' : uploadingIds.size > 0 ? 'Subiendo imagen...' : (productToEdit ? 'Actualizar Producto' : 'Guardar en Catálogo')}</span>
             </button>
           </div>
 
