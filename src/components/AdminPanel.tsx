@@ -30,7 +30,8 @@ import {
   Download,
   FolderTree,
   Coins,
-  ArrowRight
+  ArrowRight,
+  PlusCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Product, Apartado, StoreConfig, ApartadoStatus } from '../types';
@@ -53,6 +54,7 @@ interface AdminPanelProps {
   onDeleteApartado: (id: string) => Promise<void>;
   onUpdateConfig: (newConfig: Partial<StoreConfig>) => Promise<void>;
   onDeleteCategory: (categoryName: string) => Promise<void>;
+  onOpenAddProductToApartado: (apartado: Apartado) => void;
   onResetToDefaults: () => Promise<void>;
 }
 
@@ -74,6 +76,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onDeleteApartado,
   onUpdateConfig,
   onDeleteCategory,
+  onOpenAddProductToApartado,
   onResetToDefaults,
 }) => {
   const [activeTab, setActiveTab] = useState<'apartados' | 'inventory' | 'sales_report' | 'settings'>('apartados');
@@ -702,27 +705,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
                           )}
 
-                          {/* Product Info */}
-                          <div className="flex items-center gap-3 p-3 bg-teal-50/40 rounded-2xl border border-teal-100 mb-3">
-                            {apt.productImage && (
-                              <img
-                                src={apt.productImage}
-                                alt={apt.productName}
-                                className="w-12 h-12 rounded-xl object-cover border border-slate-100 shadow-2xs shrink-0"
-                                referrerPolicy="no-referrer"
-                              />
+                          {/* Product Info (uno o varios productos en la misma cuenta) */}
+                          <div className="space-y-2 mb-3">
+                            {(apt.items && apt.items.length > 0 ? apt.items : [{
+                              id: `legacy-${apt.id}`,
+                              productImage: apt.productImage,
+                              productName: apt.productName,
+                              selectedDesign: apt.selectedDesign,
+                              selectedColor: apt.selectedColor,
+                              selectedFormat: apt.selectedFormat,
+                              quantity: apt.quantity,
+                            }]).map((item) => (
+                              <div key={item.id} className="flex items-center gap-3 p-3 bg-teal-50/40 rounded-2xl border border-teal-100">
+                                {item.productImage && (
+                                  <img
+                                    src={item.productImage}
+                                    alt={item.productName}
+                                    className="w-12 h-12 rounded-xl object-cover border border-slate-100 shadow-2xs shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">
+                                    {item.productName}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-[11px] text-teal-800 flex-wrap mt-0.5">
+                                    {item.selectedDesign && <span>🎨 {item.selectedDesign}</span>}
+                                    {item.selectedColor && <span>🌈 {item.selectedColor}</span>}
+                                    {item.selectedFormat && <span>📐 {item.selectedFormat}</span>}
+                                    <span className="font-bold text-slate-700">Cant: {item.quantity}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {apt.status !== 'cancelado' && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenAddProductToApartado(apt)}
+                                className="w-full py-2 rounded-xl border border-dashed border-teal-300 text-teal-700 text-xs font-bold hover:bg-teal-50 transition flex items-center justify-center gap-1.5"
+                              >
+                                <PlusCircle className="w-3.5 h-3.5" />
+                                Agregar otro producto a esta cuenta
+                              </button>
                             )}
-                            <div className="flex-1 min-w-0">
-                              <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">
-                                {apt.productName}
-                              </div>
-                              <div className="flex items-center gap-2 text-[11px] text-teal-800 flex-wrap mt-0.5">
-                                {apt.selectedDesign && <span>🎨 {apt.selectedDesign}</span>}
-                                {apt.selectedColor && <span>🌈 {apt.selectedColor}</span>}
-                                {apt.selectedFormat && <span>📐 {apt.selectedFormat}</span>}
-                                <span className="font-bold text-slate-700">Cant: {apt.quantity}</span>
-                              </div>
-                            </div>
                           </div>
 
                           {/* Progress Bar & Financials */}
