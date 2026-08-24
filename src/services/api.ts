@@ -175,6 +175,24 @@ export const api = {
     return true;
   },
 
+  // Convierte un apartado (nuevo o viejo) en su lista de productos (items).
+  // Si el apartado es de antes de este cambio, arma un item con sus campos antiguos.
+  _getApartadoItems(apt: Apartado): import('../types').ApartadoItem[] {
+    if (apt.items && apt.items.length > 0) return apt.items;
+    return [{
+      id: `item-${apt.id}-legacy`,
+      productId: apt.productId,
+      productName: apt.productName,
+      productImage: apt.productImage,
+      selectedDesign: apt.selectedDesign,
+      selectedColor: apt.selectedColor,
+      selectedFormat: apt.selectedFormat,
+      quantity: apt.quantity,
+      unitPrice: apt.unitPrice,
+      subtotal: apt.totalPrice,
+    }];
+  },
+
   // Apartados CRUD
   async createApartado(apartadoData: {
     clientName: string;
@@ -215,6 +233,18 @@ export const api = {
       clientName: apartadoData.clientName || 'Cliente',
       clientNote: apartadoData.clientNote || '',
       clientPhone: apartadoData.clientPhone || '',
+      items: [{
+        id: `item-${Date.now()}`,
+        productId: apartadoData.productId,
+        productName: apartadoData.productName,
+        productImage: apartadoData.productImage,
+        selectedDesign: apartadoData.selectedDesign,
+        selectedColor: apartadoData.selectedColor,
+        selectedFormat: apartadoData.selectedFormat,
+        quantity: Number(apartadoData.quantity) || 1,
+        unitPrice: Number(apartadoData.unitPrice) || totalPrice,
+        subtotal: totalPrice,
+      }],
       productId: apartadoData.productId,
       productName: apartadoData.productName,
       productImage: apartadoData.productImage,
@@ -243,6 +273,72 @@ export const api = {
 
     await saveStoreRow(store);
     return newApartado;
+  },
+
+  // Solo la administradora usa esto: agrega otro producto a un apartado (cuenta) que ya existe.
+  async addProductToApartado(apartadoId: string, itemData: {
+    productId: string;
+    productName: string;
+    productImage?: string;
+    selectedDesign?: string;
+    selectedColor?: string;
+    selectedFormat?: string;
+    quantity: number;
+    unitPrice: number;
+    decrementStock?: boolean;
+  }): Promise<Apartado> {
+    const store = await fetchStoreRow();
+    const index = (store.apartados || []).findIndex(a => a.id === apartadoId);
+    if (index === -1) throw new Error('Apartado no encontrado');
+
+    const current = store.apartados[index];
+    const existingItems = this._getApartadoItems(current);
+    const quantity = Number(itemData.quantity) || 1;
+    const unitPrice = Number(itemData.unitPrice) || 0;
+    const newItem = {
+      id: `item-${Date.now()}`,
+      productId: itemData.productId,
+      productName: itemData.productName,
+      productImage: itemData.productImage,
+      selectedDesign: itemData.selectedDesign,
+      selectedColor: itemData.selectedColor,
+      selectedFormat: itemData.selectedFormat,
+      quantity,
+      unitPrice,
+      subtotal: unitPrice * quantity,
+    };
+    const updatedItems = [...existingItems, newItem];
+    const totalPrice = updatedItems.reduce((sum, it) => sum + Number(it.subtotal || 0), 0);
+    const totalAbonado = (current.abonos || []).reduce((sum, a) => sum + Number(a.amount || 0), 0);
+    const saldoPendiente = Math.max(0, totalPrice - totalAbonado);
+
+    let newStatus = current.status;
+    if (saldoPendiente === 0 && current.status !== 'entregado') {
+      newStatus = 'liquidado';
+    } else if (current.status === 'liquidado' && saldoPendiente > 0) {
+      newStatus = totalAbonado > 0 ? 'pagado_parcial' : 'apartado';
+    }
+
+    const updated: Apartado = {
+      ...current,
+      items: updatedItems,
+      totalPrice,
+      saldoPendiente,
+      status: newStatus,
+      updatedAt: new Date().toISOString(),
+    };
+
+    store.apartados[index] = updated;
+
+    if (itemData.decrementStock && itemData.productId) {
+      const prodIndex = (store.products || []).findIndex(p => p.id === itemData.productId);
+      if (prodIndex !== -1) {
+        store.products[prodIndex].stock = Math.max(0, (store.products[prodIndex].stock || 0) - quantity);
+      }
+    }
+
+    await saveStoreRow(store);
+    return updated;
   },
 
   async addAbono(apartado: Apartado, amount: number, note?: string): Promise<Apartado> {
