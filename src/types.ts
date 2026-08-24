@@ -38,11 +38,26 @@ export interface Abono {
 
 export type ApartadoStatus = 'apartado' | 'pagado_parcial' | 'liquidado' | 'entregado' | 'cancelado';
 
+export interface ApartadoItem {
+  id: string;
+  productId: string;
+  productName: string;
+  productImage?: string;
+  selectedDesign?: string;
+  selectedColor?: string;
+  selectedFormat?: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
 export interface Apartado {
   id: string;
   clientName: string;
   clientNote: string;
   clientPhone?: string;
+  items?: ApartadoItem[];
+  // Campos antiguos (compatibilidad con apartados creados antes de soportar varios productos)
   productId: string;
   productName: string;
   productImage?: string;
