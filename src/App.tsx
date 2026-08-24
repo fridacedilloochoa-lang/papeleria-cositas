@@ -1,1555 +1,928 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Package, 
-  Bookmark, 
-  Settings, 
-  Plus, 
-  Edit3, 
-  Trash2, 
+  Header 
+} from './components/Header';
+import { ProductCard } from './components/ProductCard';
+import { ProductModal } from './components/ProductModal';
+import { ApartadoModal } from './components/ApartadoModal';
+import { CartDrawer } from './components/CartDrawer';
+import { AdminPanel } from './components/AdminPanel';
+import { AdminLoginModal } from './components/AdminLoginModal';
+import { ProductFormModal } from './components/ProductFormModal';
+import { AbonoModal } from './components/AbonoModal';
+import { ApartadoFormModal } from './components/ApartadoFormModal';
+import { PdfCatalogModal } from './components/PdfCatalogModal';
+
+import { Product, ProductDesign, ProductColor, CartItem, Apartado, StoreConfig, ApartadoStatus, KawaiiTheme } from './types';
+import { initialProducts, initialStoreConfig, initialApartados } from './data/initialData';
+import { api } from './services/api';
+import { 
+  Sparkles, 
+  Heart, 
+  ShoppingBag, 
   Search, 
-  DollarSign, 
-  Receipt, 
-  MessageCircle, 
-  CheckCircle2, 
-  Clock, 
+  Bookmark, 
   Layers, 
-  X, 
-  Lock, 
-  Unlock, 
-  Sparkles,
-  AlertCircle,
+  ChevronRight,
+  PackageSearch,
+  Filter,
+  FileDown,
+  MessageCircle,
   Phone,
-  User,
-  MessageSquare,
-  TrendingUp,
-  RefreshCw,
-  RotateCcw,
-  Eye,
-  EyeOff,
-  FileSpreadsheet,
-  Download,
-  FolderTree,
-  Coins,
-  ArrowRight,
-  PlusCircle
+  Plus,
+  Shield,
+  ExternalLink,
+  Star
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { Product, Apartado, StoreConfig, ApartadoStatus } from '../types';
 
-interface AdminPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-  products: Product[];
-  apartados: Apartado[];
-  config: StoreConfig;
-  currency: string;
-  onOpenNewProductModal: () => void;
-  onOpenEditProductModal: (product: Product) => void;
-  onSaveProduct?: (productData: Partial<Product>) => Promise<void>;
-  onDeleteProduct: (id: string) => Promise<void>;
-  onQuickStockChange: (id: string, delta: number) => Promise<void>;
-  onOpenAbonoModal: (apartado: Apartado) => void;
-  onOpenManualApartadoModal: () => void;
-  onUpdateApartadoStatus: (id: string, status: ApartadoStatus) => Promise<void>;
-  onDeleteApartado: (id: string) => Promise<void>;
-  onUpdateConfig: (newConfig: Partial<StoreConfig>) => Promise<void>;
-  onDeleteCategory: (categoryName: string) => Promise<void>;
-  onOpenAddProductToApartado: (apartado: Apartado) => void;
-  onResetToDefaults: () => Promise<void>;
-}
+export default function App() {
+  // Main Data States
+  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const [apartados, setApartados] = useState<Apartado[]>(initialApartados);
+  const [config, setConfig] = useState<StoreConfig>(initialStoreConfig);
+  const [currentTheme, setCurrentTheme] = useState<KawaiiTheme>(() => {
+    return (localStorage.getItem('kawaii_theme') as KawaiiTheme) || 'tiffany-rose';
+  });
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({
-  isOpen,
-  onClose,
-  products,
-  apartados,
-  config,
-  currency,
-  onOpenNewProductModal,
-  onOpenEditProductModal,
-  onSaveProduct,
-  onDeleteProduct,
-  onQuickStockChange,
-  onOpenAbonoModal,
-  onOpenManualApartadoModal,
-  onUpdateApartadoStatus,
-  onDeleteApartado,
-  onUpdateConfig,
-  onDeleteCategory,
-  onOpenAddProductToApartado,
-  onResetToDefaults,
-}) => {
-  const [activeTab, setActiveTab] = useState<'apartados' | 'inventory' | 'sales_report' | 'settings'>('apartados');
-  const [productSearch, setProductSearch] = useState('');
-  const [productCategoryFilter, setProductCategoryFilter] = useState('Todas');
-  const [apartadoFilter, setApartadoFilter] = useState<'all' | 'pending' | 'liquidated' | 'delivered'>('all');
-  const [apartadoSearch, setApartadoSearch] = useState('');
+  // Filter States
+  const [activeCategory, setActiveCategory] = useState('Todas');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
+  const [showOnlyNew, setShowOnlyNew] = useState(false);
+  const [showOnlyOffers, setShowOnlyOffers] = useState(false);
+  const [showOnlyInStock, setShowOnlyInStock] = useState(false);
 
-  // Settings local state
-  const [storeName, setStoreName] = useState(config.storeName);
-  const [tagline, setTagline] = useState(config.tagline);
-  const [announcementBanner, setAnnouncementBanner] = useState(config.announcementBanner);
-  const [whatsappNumber, setWhatsappNumber] = useState(config.whatsappNumber);
-  const [adminPin, setAdminPin] = useState(config.adminPin || '1029');
-  const [themePreference, setThemePreference] = useState<'tiffany-rose' | 'rosa' | 'tiffany'>(config.themePreference || 'tiffany-rose');
-  const [showPin, setShowPin] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [configSavedSuccess, setConfigSavedSuccess] = useState(false);
-  const [confirmModal, setConfirmModal] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
+  // Modal Visibility States
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState<{
+    product: Product;
+    initialDesign?: ProductDesign;
   } | null>(null);
 
-  if (!isOpen) return null;
+  const [apartadoTarget, setApartadoTarget] = useState<{
+    product: Product;
+    design?: ProductDesign;
+    color?: ProductColor;
+    format?: string;
+    quantity?: number;
+  } | null>(null);
 
-  // Financial calculations
-  const totalDeudaGlobal = apartados
-    .filter(a => a.status !== 'cancelado' && a.status !== 'entregado')
-    .reduce((sum, a) => sum + (a.saldoPendiente || 0), 0);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isProductFormOpen, setIsProductFormOpen] = useState(false);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+  const [isAbonoModalOpen, setIsAbonoModalOpen] = useState(false);
+  const [apartadoForAbono, setApartadoForAbono] = useState<Apartado | null>(null);
+  const [isManualApartadoOpen, setIsManualApartadoOpen] = useState(false);
+  const [apartadoParaAgregarProducto, setApartadoParaAgregarProducto] = useState<Apartado | null>(null);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
-  const totalRecaudadoAbonos = apartados
-    .filter(a => a.status !== 'cancelado')
-    .reduce((sum, a) => sum + (a.totalAbonado || 0), 0);
+  // Toast / Notification banner
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const totalApartadosActivos = apartados
-    .filter(a => a.status === 'apartado' || a.status === 'pagado_parcial')
-    .length;
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
-  const totalLiquidadosListos = apartados
-    .filter(a => a.status === 'liquidado')
-    .length;
-
-  // Inventory financial totals
-  const totalInversionInventario = products.reduce((sum, p) => {
-    const cost = p.costPrice ?? (p.price * 0.5); // fallback estimate if not set
-    return sum + (cost * p.stock);
-  }, 0);
-
-  const totalValorVentaInventario = products.reduce((sum, p) => {
-    return sum + (p.price * p.stock);
-  }, 0);
-
-  const totalGananciaPotencialInventario = totalValorVentaInventario - totalInversionInventario;
-
-  // Sales and profit analysis by day
-  const salesByDayMap = new Map<string, {
-    date: string;
-    itemsCount: number;
-    totalVenta: number;
-    totalInversion: number;
-    totalRecaudado: number;
-    gananciaEstimada: number;
-    apartadosList: Apartado[];
-  }>();
-
-  apartados.forEach(apt => {
-    if (apt.status === 'cancelado') return;
-    const dateKey = apt.createdAt ? apt.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10);
-    
-    // Find cost
-    const matchingProd = products.find(p => p.id === apt.productId);
-    const unitCost = matchingProd?.costPrice ?? (apt.unitPrice * 0.5);
-    const totalCost = unitCost * (apt.quantity || 1);
-    const totalVenta = apt.totalPrice;
-    const ganancia = totalVenta - totalCost;
-
-    if (!salesByDayMap.has(dateKey)) {
-      salesByDayMap.set(dateKey, {
-        date: dateKey,
-        itemsCount: 0,
-        totalVenta: 0,
-        totalInversion: 0,
-        totalRecaudado: 0,
-        gananciaEstimada: 0,
-        apartadosList: [],
-      });
-    }
-
-    const dayData = salesByDayMap.get(dateKey)!;
-    dayData.itemsCount += (apt.quantity || 1);
-    dayData.totalVenta += totalVenta;
-    dayData.totalInversion += totalCost;
-    dayData.totalRecaudado += apt.totalAbonado;
-    dayData.gananciaEstimada += ganancia;
-    dayData.apartadosList.push(apt);
-  });
-
-  const dailySalesReport = Array.from(salesByDayMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-
-  const totalGananciaVentasRealizadas = dailySalesReport.reduce((sum, d) => sum + d.gananciaEstimada, 0);
-  const totalInversionVentasRealizadas = dailySalesReport.reduce((sum, d) => sum + d.totalInversion, 0);
-  const totalVentasRegistradas = dailySalesReport.reduce((sum, d) => sum + d.totalVenta, 0);
-
-  // Filtered Products
-  const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-      p.category.toLowerCase().includes(productSearch.toLowerCase()) ||
-      p.tags?.some(t => t.toLowerCase().includes(productSearch.toLowerCase()));
-    const matchesCategory = productCategoryFilter === 'Todas' || productCategoryFilter === 'Todos' || p.category === productCategoryFilter;
-    return matchesSearch && matchesCategory;
-  });
-
-  // Filtered Apartados
-  const filteredApartados = apartados.filter(a => {
-    const matchesSearch = a.clientName.toLowerCase().includes(apartadoSearch.toLowerCase()) ||
-      a.productName.toLowerCase().includes(apartadoSearch.toLowerCase()) ||
-      a.clientNote.toLowerCase().includes(apartadoSearch.toLowerCase()) ||
-      (a.clientPhone && a.clientPhone.includes(apartadoSearch));
-
-    if (!matchesSearch) return false;
-
-    if (apartadoFilter === 'pending') {
-      return a.saldoPendiente > 0 && a.status !== 'cancelado';
-    }
-    if (apartadoFilter === 'liquidated') {
-      return a.status === 'liquidado';
-    }
-    if (apartadoFilter === 'delivered') {
-      return a.status === 'entregado';
-    }
-    return true;
-  });
-
-  // Quick category change for a product to relocate into corresponding tab
-  const handleQuickCategoryChange = async (productId: string, newCat: string) => {
-    if (onSaveProduct) {
-      const existing = products.find(p => p.id === productId);
-      if (existing) {
-        await onSaveProduct({
-          ...existing,
-          category: newCat,
-        });
+  // Initial Data Fetch
+  useEffect(() => {
+    async function loadData() {
+      setIsLoading(true);
+      try {
+        const data = await api.getStoreData();
+        if (data.products && data.products.length > 0) setProducts(data.products);
+        if (data.apartados) setApartados(data.apartados);
+        if (data.config) setConfig(data.config);
+      } catch (err) {
+        console.error('Error fetching store data:', err);
       }
+      setFavorites(api.getFavorites());
+      setIsLoading(false);
+    }
+    loadData();
+  }, []);
+
+  // Favorites toggle
+  const handleToggleFavorite = (productId: string) => {
+    setFavorites(prev => {
+      let updated: string[];
+      if (prev.includes(productId)) {
+        updated = prev.filter(id => id !== productId);
+        showToast('Producto eliminado de tus favoritos');
+      } else {
+        updated = [...prev, productId];
+        showToast('❤️ ¡Añadido a tus favoritos!');
+      }
+      api.saveFavorites(updated);
+      return updated;
+    });
+  };
+
+  // Cart operations
+  const handleAddToCart = (
+    product: Product, 
+    selectedDesign?: ProductDesign, 
+    selectedColor?: ProductColor, 
+    selectedFormat?: string, 
+    quantity: number = 1
+  ) => {
+    setCart(prev => {
+      const existingIndex = prev.findIndex(item => 
+        item.product.id === product.id &&
+        item.selectedDesign?.id === selectedDesign?.id &&
+        item.selectedColor?.id === selectedColor?.id &&
+        item.selectedFormat === selectedFormat
+      );
+
+      if (existingIndex > -1) {
+        const updated = [...prev];
+        updated[existingIndex].quantity += quantity;
+        return updated;
+      } else {
+        const newItem: CartItem = {
+          id: `cart-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          product,
+          selectedDesign,
+          selectedColor,
+          selectedFormat,
+          quantity,
+        };
+        return [...prev, newItem];
+      }
+    });
+
+    showToast(`🛍️ Agregado "${product.name}" a tu lista de pedido`);
+  };
+
+  const handleUpdateCartQuantity = (cartItemId: string, delta: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === cartItemId) {
+        const newQty = Math.max(1, item.quantity + delta);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    }));
+  };
+
+  const handleRemoveCartItem = (cartItemId: string) => {
+    setCart(prev => prev.filter(item => item.id !== cartItemId));
+  };
+
+  const handleClearCart = () => {
+    setCart([]);
+  };
+
+  // Products CRUD handlers
+  const handleSaveProduct = async (productData: Partial<Product>) => {
+    try {
+      // Si el producto trae una categoría que todavía no existe en la lista
+      // oficial de pestañas, la agregamos para que quede disponible de verdad.
+      if (productData.category && !config.categories.includes(productData.category)) {
+        const updatedCategories = [...config.categories, productData.category];
+        await handleUpdateConfig({ categories: updatedCategories });
+      }
+
+      if (productData.id) {
+        // Edit
+        const updated = await api.updateProduct(productData.id, productData);
+        setProducts(prev => prev.map(p => p.id === productData.id ? updated : p));
+        showToast('✅ Producto actualizado y guardado en línea');
+      } else {
+        // Add
+        const created = await api.addProduct(productData);
+        setProducts(prev => [created, ...prev]);
+        showToast('🌟 Nuevo producto agregado y guardado en línea');
+      }
+    } catch (err) {
+      console.error('Error guardando producto:', err);
+      showToast('❌ No se pudo guardar el producto. Revisa tu conexión a Supabase.');
+      throw err;
     }
   };
 
-  // Export Complete Excel Report (.xlsx)
-  const handleExportExcel = () => {
+  const handleDeleteProduct = async (id: string) => {
     try {
-      const wb = XLSX.utils.book_new();
+      await api.deleteProduct(id);
+      setProducts(prev => prev.filter(p => p.id !== id));
+      showToast('🗑️ Producto eliminado y guardado en línea');
+    } catch (err) {
+      console.error('Error eliminando producto:', err);
+      showToast('❌ No se pudo eliminar el producto. Revisa tu conexión a Supabase.');
+    }
+  };
 
-      // 1. Sheet: Ventas por Día & Ganancias
-      const dailyDataForExcel = dailySalesReport.map(d => ({
-        'Fecha (Año-Mes-Día)': d.date,
-        'Artículos Vendidos / Apartados': d.itemsCount,
-        'Inversión / Costo Total ($)': Number(d.totalInversion.toFixed(2)),
-        'Venta Total ($)': Number(d.totalVenta.toFixed(2)),
-        'Total Recaudado en Abonos ($)': Number(d.totalRecaudado.toFixed(2)),
-        'Ganancia Neta Estimada ($)': Number(d.gananciaEstimada.toFixed(2)),
-        'Margen de Ganancia (%)': d.totalVenta > 0 ? `${Math.round((d.gananciaEstimada / d.totalVenta) * 100)}%` : '0%',
+  const handleQuickStockChange = async (id: string, delta: number) => {
+    const res = await api.updateStock(id, delta);
+    setProducts(prev => prev.map(p => {
+      if (p.id === id) {
+        return { ...p, stock: res.stock };
+      }
+      return p;
+    }));
+  };
+
+  // Apartados Handlers
+  const handleSubmitApartado = async (apartadoData: {
+    clientName: string;
+    clientNote: string;
+    clientPhone?: string;
+    productId: string;
+    productName: string;
+    productImage?: string;
+    selectedDesign?: string;
+    selectedColor?: string;
+    selectedFormat?: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    initialAbono: number;
+    initialAbonoNote?: string;
+    decrementStock?: boolean;
+  }) => {
+    const created = await api.createApartado(apartadoData);
+    setApartados(prev => [created, ...prev]);
+    
+    // Decrement local product stock if requested
+    if (apartadoData.decrementStock && apartadoData.productId) {
+      setProducts(prev => prev.map(p => {
+        if (p.id === apartadoData.productId) {
+          return { ...p, stock: Math.max(0, p.stock - (apartadoData.quantity || 1)) };
+        }
+        return p;
       }));
-
-      // If empty, add placeholder
-      const wsDaily = XLSX.utils.json_to_sheet(dailyDataForExcel.length > 0 ? dailyDataForExcel : [
-        { 'Mensaje': 'Aún no hay ventas o apartados registrados.' }
-      ]);
-      XLSX.utils.book_append_sheet(wb, wsDaily, 'Ventas por Día');
-
-      // 2. Sheet: Detalle de Apartados & Clientes
-      const apartadosDataForExcel = apartados.map(a => {
-        const prod = products.find(p => p.id === a.productId);
-        const unitCost = prod?.costPrice ?? (a.unitPrice * 0.5);
-        const totalCost = unitCost * (a.quantity || 1);
-        const ganancia = a.totalPrice - totalCost;
-
-        return {
-          'Folio / ID': a.id,
-          'Fecha': a.createdAt ? a.createdAt.slice(0, 10) : '',
-          'Cliente': a.clientName,
-          'Teléfono': a.clientPhone || 'No registrado',
-          'Notas': a.clientNote || '',
-          'Producto': a.productName,
-          'Diseño': a.selectedDesign || 'Estándar',
-          'Color': a.selectedColor || '',
-          'Formato / Tamaño': a.selectedFormat || '',
-          'Cantidad': a.quantity,
-          'Costo Unitario ($)': Number(unitCost.toFixed(2)),
-          'Precio Venta Unitario ($)': Number(a.unitPrice.toFixed(2)),
-          'Total Venta ($)': Number(a.totalPrice.toFixed(2)),
-          'Total Inversión ($)': Number(totalCost.toFixed(2)),
-          'Ganancia Estimada ($)': Number(ganancia.toFixed(2)),
-          'Total Abonado ($)': Number(a.totalAbonado.toFixed(2)),
-          'Saldo Pendiente ($)': Number(a.saldoPendiente.toFixed(2)),
-          'Estado': a.status.toUpperCase(),
-        };
-      });
-
-      const wsApartados = XLSX.utils.json_to_sheet(apartadosDataForExcel.length > 0 ? apartadosDataForExcel : [
-        { 'Mensaje': 'Sin apartados registrados.' }
-      ]);
-      XLSX.utils.book_append_sheet(wb, wsApartados, 'Detalle Apartados');
-
-      // 3. Sheet: Inventario, Costos & Stock Actual
-      const inventoryDataForExcel = products.map(p => {
-        const cost = p.costPrice ?? 0;
-        const totalInv = cost * p.stock;
-        const totalRetail = p.price * p.stock;
-        const potProfit = totalRetail - totalInv;
-
-        return {
-          'Producto': p.name,
-          'Pestaña / Categoría': p.category,
-          'Existencias (Stock)': p.stock,
-          'Costo Unitario ($)': Number(cost.toFixed(2)),
-          'Precio Venta ($)': Number(p.price.toFixed(2)),
-          'Ganancia por Pieza ($)': Number((p.price - cost).toFixed(2)),
-          'Margen Unitario (%)': p.price > 0 ? `${Math.round(((p.price - cost) / p.price) * 100)}%` : '0%',
-          'Inversión Total en Stock ($)': Number(totalInv.toFixed(2)),
-          'Valor Total de Venta en Stock ($)': Number(totalRetail.toFixed(2)),
-          'Ganancia Potencial en Stock ($)': Number(potProfit.toFixed(2)),
-        };
-      });
-
-      const wsInventory = XLSX.utils.json_to_sheet(inventoryDataForExcel);
-      XLSX.utils.book_append_sheet(wb, wsInventory, 'Inventario y Costos');
-
-      const fileName = `Reporte_Ventas_y_Ganancias_${config.storeName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-    } catch (err) {
-      console.error('Error exporting Excel:', err);
-      alert('Hubo un error al generar el archivo Excel.');
     }
   };
 
-  const handleSaveSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSavingConfig(true);
+  // Solo la administradora: agrega otro producto a un apartado (cuenta) que ya existe.
+  const handleAddProductToApartado = async (apartadoId: string, itemData: {
+    productId: string;
+    productName: string;
+    productImage?: string;
+    selectedDesign?: string;
+    selectedColor?: string;
+    selectedFormat?: string;
+    quantity: number;
+    unitPrice: number;
+    decrementStock?: boolean;
+  }) => {
     try {
-      await onUpdateConfig({
-        storeName: storeName.trim(),
-        tagline: tagline.trim(),
-        announcementBanner: announcementBanner.trim(),
-        whatsappNumber: whatsappNumber.trim(),
-        adminPin: adminPin.trim(),
-        themePreference,
-      });
-      setConfigSavedSuccess(true);
-      setTimeout(() => setConfigSavedSuccess(false), 3000);
+      const updated = await api.addProductToApartado(apartadoId, itemData);
+      setApartados(prev => prev.map(a => a.id === apartadoId ? updated : a));
+      if (itemData.decrementStock && itemData.productId) {
+        setProducts(prev => prev.map(p => {
+          if (p.id === itemData.productId) {
+            return { ...p, stock: Math.max(0, p.stock - (itemData.quantity || 1)) };
+          }
+          return p;
+        }));
+      }
+      showToast('✅ Producto agregado a la cuenta del cliente');
     } catch (err) {
-      alert('Error guardando la configuración');
-    } finally {
-      setIsSavingConfig(false);
+      console.error('Error agregando producto al apartado:', err);
+      showToast('❌ No se pudo agregar el producto. Revisa tu conexión a Supabase.');
     }
   };
 
-  const handleSendWhatsAppReminder = (apartado: Apartado) => {
-    const phone = apartado.clientPhone ? apartado.clientPhone.replace(/\D/g, '') : '';
-    let msg = `🌸 *Hola ${apartado.clientName}, te saludamos de ${config.storeName}:*\n\n` +
-      `Te recordamos con mucho cariño tu apartado de:\n` +
-      `📦 *${apartado.productName}*\n`;
-    if (apartado.selectedDesign) msg += `🎨 *Diseño:* ${apartado.selectedDesign}\n`;
-    msg += `💰 *Total del producto:* ${currency}${apartado.totalPrice.toFixed(2)}\n` +
-      `💵 *Total que has abonado:* ${currency}${apartado.totalAbonado.toFixed(2)}\n` +
-      `⏳ *Saldo pendiente por pagar:* ${currency}${apartado.saldoPendiente.toFixed(2)}\n\n`;
-
-    if (apartado.saldoPendiente === 0) {
-      msg += `🎉 *¡Tu producto está totalmente liquidado!* Ya puedes pasar a recogerlo en el momento que gustes.`;
-    } else {
-      msg += `¿Te gustaría registrar un abono o pasar por él? Quedamos a tus órdenes. ¡Que tengas un excelente día!`;
+  const handleSaveAbono = async (apartadoId: string, amount: number, note?: string) => {
+    const current = apartados.find(a => a.id === apartadoId);
+    if (!current) {
+      throw new Error('Apartado no encontrado');
     }
-
-    const url = phone 
-      ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` 
-      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
+    const updated = await api.addAbono(current, amount, note);
+    setApartados(prev => prev.map(a => a.id === apartadoId ? updated : a));
+    showToast(`💵 Abono de ${config.currency}${amount} registrado con éxito`);
   };
+
+  const handleUpdateApartadoStatus = async (id: string, status: ApartadoStatus) => {
+    const updated = await api.updateApartado(id, { status });
+    setApartados(prev => prev.map(a => a.id === id ? { ...a, status } : a));
+    showToast('Estado de apartado actualizado');
+  };
+
+  const handleDeleteApartado = async (id: string) => {
+    try {
+      await api.deleteApartado(id);
+      setApartados(prev => prev.filter(a => a.id !== id));
+      showToast('🗑️ Apartado eliminado y guardado en línea');
+    } catch (err) {
+      console.error('Error eliminando apartado:', err);
+      showToast('❌ No se pudo eliminar el apartado. Revisa tu conexión a Supabase.');
+    }
+  };
+
+  const handleUpdateConfig = async (newConfig: Partial<StoreConfig>) => {
+    const updated = await api.updateConfig(newConfig);
+    setConfig(updated);
+    if (newConfig.themePreference) {
+      setCurrentTheme(newConfig.themePreference);
+      localStorage.setItem('kawaii_theme', newConfig.themePreference);
+    }
+  };
+
+  const handleDeleteCategory = async (categoryName: string) => {
+    const productsUsingIt = products.filter(p => p.category === categoryName).length;
+    if (productsUsingIt > 0) {
+      showToast(`⚠️ No se puede eliminar: hay ${productsUsingIt} producto(s) usando "${categoryName}". Cámbiales la categoría primero.`);
+      return;
+    }
+    try {
+      const updatedCategories = config.categories.filter(c => c !== categoryName);
+      await handleUpdateConfig({ categories: updatedCategories });
+      showToast(`🗑️ Categoría "${categoryName}" eliminada`);
+    } catch (err) {
+      console.error('Error eliminando categoría:', err);
+      showToast('❌ No se pudo eliminar la categoría. Revisa tu conexión a Supabase.');
+    }
+  };
+
+  const handleSelectTheme = (theme: KawaiiTheme) => {
+    setCurrentTheme(theme);
+    localStorage.setItem('kawaii_theme', theme);
+    api.updateConfig({ themePreference: theme });
+    showToast(`🎀 Paleta cambiada: ${theme === 'tiffany-rose' ? 'Dúo Tiffany & Rosa' : theme === 'rosa' ? 'Rosa Pastel' : 'Tiffany Menta'}`);
+  };
+
+  const handleResetToDefaults = async () => {
+    await api.resetData();
+    setProducts(initialProducts);
+    setApartados(initialApartados);
+    setConfig(initialStoreConfig);
+    showToast('Datos de ejemplo restablecidos');
+  };
+
+  // Filtered Products for Customer Catalog
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      // Search
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q || 
+        p.name.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q) ||
+        p.tags?.some(t => t.toLowerCase().includes(q)) ||
+        p.designs?.some(d => d.name.toLowerCase().includes(q)) ||
+        p.colors?.some(c => c.name.toLowerCase().includes(q));
+
+      // Category
+      const matchesCategory = activeCategory === 'Todas' || activeCategory === 'Todos' || p.category === activeCategory;
+
+      // Special Filters
+      const matchesFavorites = !showOnlyFavorites || favorites.includes(p.id);
+      const matchesNew = !showOnlyNew || !!p.isNew;
+      const matchesOffers = !showOnlyOffers || (!!p.comparePrice && p.comparePrice > p.price);
+      const matchesInStock = !showOnlyInStock || p.stock > 0;
+
+      return matchesSearch && matchesCategory && matchesFavorites && matchesNew && matchesOffers && matchesInStock;
+    });
+  }, [products, searchQuery, activeCategory, showOnlyFavorites, showOnlyNew, showOnlyOffers, showOnlyInStock, favorites]);
+
+  const activeApartadosCount = apartados.filter(a => a.status === 'apartado' || a.status === 'pagado_parcial').length;
+  const cleanPhone = (config.whatsappNumber || '55 1779 1232').replace(/\D/g, '');
+  const formattedWhatsappUrl = `https://wa.me/${cleanPhone.length === 10 ? '521' + cleanPhone : cleanPhone}`;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 md:p-6 animate-fadeIn no-print">
-      <div 
-        id="admin-panel-modal"
-        className="bg-white rounded-3xl w-full max-w-6xl h-[94vh] shadow-2xl border border-teal-100 flex flex-col overflow-hidden"
-      >
-        {/* Top Header */}
-        <div className="p-4 sm:p-5 border-b border-teal-100 bg-gradient-to-r from-teal-900 via-teal-800 to-rose-950 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-teal-500/20 text-teal-300 border border-teal-400/30">
-              <Unlock className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-black tracking-tight">
-                  Panel de Administración
-                </h2>
-                <span className="text-[10px] uppercase font-extrabold bg-gradient-to-r from-teal-400 to-rose-400 text-slate-950 px-2.5 py-0.5 rounded-md shadow-2xs">
-                  Tiffany & Rosa
-                </span>
-              </div>
-              <p className="text-xs text-teal-200">
-                {config.storeName} &bull; Control de Ventas, Ganancias, Inversión e Inventario
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Quick Excel Download Button in Header */}
-            <button
-              onClick={handleExportExcel}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
-              title="Descargar Excel con Ventas por día, Inversión y Ganancias"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span className="hidden sm:inline">Descargar Excel Ventas</span>
-            </button>
-
-            <button
-              onClick={onClose}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition"
-              title="Cerrar panel"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="bg-gradient-to-r from-teal-50/90 via-rose-50/40 to-teal-50/90 px-4 sm:px-6 pt-3 border-b border-teal-100 flex items-center justify-between gap-2 overflow-x-auto">
-          <div className="flex items-center gap-2">
-            
-            {/* Apartados Tab */}
-            <button
-              id="admin-tab-apartados"
-              onClick={() => setActiveTab('apartados')}
-              className={`pb-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'apartados'
-                  ? 'border-teal-600 text-teal-950 font-black'
-                  : 'border-transparent text-slate-500 hover:text-teal-800'
-              }`}
-            >
-              <Bookmark className="w-4 h-4 text-teal-600" />
-              <span>Control de Apartados</span>
-              {totalApartadosActivos > 0 && (
-                <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black">
-                  {totalApartadosActivos}
-                </span>
-              )}
-            </button>
-
-            {/* Sales & Profit Report Tab */}
-            <button
-              id="admin-tab-sales-report"
-              onClick={() => setActiveTab('sales_report')}
-              className={`pb-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'sales_report'
-                  ? 'border-rose-500 text-rose-950 font-black'
-                  : 'border-transparent text-slate-500 hover:text-rose-800'
-              }`}
-            >
-              <TrendingUp className="w-4 h-4 text-rose-500" />
-              <span>Ventas por Día & Ganancia</span>
-              <span className="bg-rose-100 text-rose-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                Excel
-              </span>
-            </button>
-
-            {/* Inventory Tab */}
-            <button
-              id="admin-tab-inventory"
-              onClick={() => setActiveTab('inventory')}
-              className={`pb-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'inventory'
-                  ? 'border-teal-600 text-teal-950 font-black'
-                  : 'border-transparent text-slate-500 hover:text-teal-800'
-              }`}
-            >
-              <Package className="w-4 h-4 text-teal-600" />
-              <span>Inventario y Pestañas</span>
-              <span className="bg-teal-100 text-teal-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                {products.length}
-              </span>
-            </button>
-
-            {/* Settings Tab */}
-            <button
-              id="admin-tab-settings"
-              onClick={() => setActiveTab('settings')}
-              className={`pb-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'settings'
-                  ? 'border-teal-600 text-teal-950 font-black'
-                  : 'border-transparent text-slate-500 hover:text-teal-800'
-              }`}
-            >
-              <Settings className="w-4 h-4 text-teal-600" />
-              <span>Ajustes de Tienda</span>
-            </button>
-
-          </div>
-        </div>
-
-        {/* Tab Content Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
-          
-          {/* ===================== TAB 1: APARTADOS Y DEUDAS ===================== */}
-          {activeTab === 'apartados' && (
-            <div className="space-y-6">
-              
-              {/* Metric Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                
-                {/* Deuda Total Pendiente */}
-                <div className="bg-white p-4 sm:p-5 rounded-3xl border border-rose-100 shadow-xs flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-rose-700 uppercase tracking-wider block mb-1">
-                      Deuda Total por Cobrar
-                    </span>
-                    <span className="text-2xl sm:text-3xl font-black text-rose-600">
-                      {currency}{totalDeudaGlobal.toFixed(2)}
-                    </span>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Suma de saldos pendientes de clientes
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
-                    <DollarSign className="w-6 h-6" />
-                  </div>
-                </div>
-
-                {/* Total Recaudado en Abonos */}
-                <div className="bg-white p-4 sm:p-5 rounded-3xl border border-teal-100 shadow-xs flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-teal-700 uppercase tracking-wider block mb-1">
-                      Total Recaudado
-                    </span>
-                    <span className="text-2xl sm:text-3xl font-black text-teal-800">
-                      {currency}{totalRecaudadoAbonos.toFixed(2)}
-                    </span>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Dinero recibido en anticipos y abonos
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 shrink-0">
-                    <Receipt className="w-6 h-6" />
-                  </div>
-                </div>
-
-                {/* Apartados Activos y Listos */}
-                <div className="bg-white p-4 sm:p-5 rounded-3xl border border-teal-100 shadow-xs flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                      Estado de Entregas
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl font-black text-slate-900">
-                        {totalApartadosActivos}
-                      </span>
-                      <span className="text-xs text-slate-400 font-bold">pendientes</span>
-                      <span className="text-slate-300">/</span>
-                      <span className="text-2xl font-black text-emerald-600">
-                        {totalLiquidadosListos}
-                      </span>
-                      <span className="text-xs text-emerald-600 font-bold">liquidados</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Listos para entrega a clientas
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 shrink-0">
-                    <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Action & Filter Bar */}
-              <div className="bg-white p-4 rounded-2xl border border-teal-100 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-                
-                {/* Search */}
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={apartadoSearch}
-                    onChange={(e) => setApartadoSearch(e.target.value)}
-                    placeholder="Buscar por cliente, producto, teléfono o nota..."
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  />
-                </div>
-
-                {/* Filter buttons */}
-                <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-                  <button
-                    onClick={() => setApartadoFilter('all')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-                      apartadoFilter === 'all'
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Todos ({apartados.length})
-                  </button>
-                  <button
-                    onClick={() => setApartadoFilter('pending')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-                      apartadoFilter === 'pending'
-                        ? 'bg-rose-600 text-white'
-                        : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-                    }`}
-                  >
-                    Con Saldo ({apartados.filter(a => a.saldoPendiente > 0 && a.status !== 'cancelado').length})
-                  </button>
-                  <button
-                    onClick={() => setApartadoFilter('liquidated')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-                      apartadoFilter === 'liquidated'
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                    }`}
-                  >
-                    Liquidados ({totalLiquidadosListos})
-                  </button>
-                  <button
-                    onClick={() => setApartadoFilter('delivered')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-                      apartadoFilter === 'delivered'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-blue-50 text-blue-800 hover:bg-blue-100'
-                    }`}
-                  >
-                    Entregados
-                  </button>
-                </div>
-
-                {/* Export & Manual add */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleExportExcel}
-                    className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold shadow-2xs transition flex items-center justify-center gap-1.5 shrink-0"
-                    title="Exportar a Excel"
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                    <span>Excel</span>
-                  </button>
-
-                  <button
-                    onClick={onOpenManualApartadoModal}
-                    className="px-4 py-2 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition flex items-center justify-center gap-1.5 shrink-0"
-                  >
-                    <Plus className="w-4 h-4" />
-                    + Registrar Apartado
-                  </button>
-                </div>
-
-              </div>
-
-              {/* Apartados Cards Grid */}
-              {filteredApartados.length === 0 ? (
-                <div className="bg-white rounded-3xl p-12 text-center border border-teal-100">
-                  <div className="w-16 h-16 rounded-full bg-teal-50 text-teal-400 flex items-center justify-center mx-auto mb-3">
-                    <Bookmark className="w-8 h-8" />
-                  </div>
-                  <h3 className="font-bold text-slate-800 text-base">No se encontraron apartados</h3>
-                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                    No hay apartados registrados con los filtros seleccionados. Puedes registrar un nuevo apartado manualmente.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredApartados.map((apt) => {
-                    const isLiquidado = apt.saldoPendiente === 0;
-                    const percentPaid = apt.totalPrice > 0 
-                      ? Math.min(100, Math.round((apt.totalAbonado / apt.totalPrice) * 100)) 
-                      : 100;
-
-                    return (
-                      <div 
-                        key={apt.id}
-                        className={`bg-white rounded-3xl p-4 sm:p-5 border transition flex flex-col justify-between shadow-xs ${
-                          apt.status === 'cancelado' 
-                            ? 'border-slate-200 opacity-60' 
-                            : isLiquidado
-                            ? 'border-emerald-200 ring-1 ring-emerald-100'
-                            : 'border-rose-200/80 hover:border-rose-300'
-                        }`}
-                      >
-                        <div>
-                          {/* Client Header */}
-                          <div className="flex items-start justify-between gap-3 mb-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-teal-400 to-rose-300 flex items-center justify-center text-white font-extrabold text-sm shrink-0 shadow-2xs">
-                                {apt.clientName.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <h4 className="font-bold text-slate-900 text-sm sm:text-base leading-tight">
-                                  {apt.clientName}
-                                </h4>
-                                {apt.clientPhone && (
-                                  <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-0.5">
-                                    <Phone className="w-3 h-3 text-teal-600" />
-                                    <span>{apt.clientPhone}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Status Badge */}
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide ${
-                              apt.status === 'liquidado'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                : apt.status === 'entregado'
-                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                                : apt.status === 'cancelado'
-                                ? 'bg-slate-200 text-slate-700'
-                                : 'bg-rose-100 text-rose-800 border border-rose-200'
-                            }`}>
-                              {apt.status === 'pagado_parcial' ? 'En Abonos' : apt.status}
-                            </span>
-                          </div>
-
-                          {/* Client Note */}
-                          {apt.clientNote && (
-                            <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-600 mb-3 flex items-start gap-1.5">
-                              <User className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                              <span className="italic">{apt.clientNote}</span>
-                            </div>
-                          )}
-
-                          {/* Product Info (uno o varios productos en la misma cuenta) */}
-                          <div className="space-y-2 mb-3">
-                            {(apt.items && apt.items.length > 0 ? apt.items : [{
-                              id: `legacy-${apt.id}`,
-                              productImage: apt.productImage,
-                              productName: apt.productName,
-                              selectedDesign: apt.selectedDesign,
-                              selectedColor: apt.selectedColor,
-                              selectedFormat: apt.selectedFormat,
-                              quantity: apt.quantity,
-                            }]).map((item) => (
-                              <div key={item.id} className="flex items-center gap-3 p-3 bg-teal-50/40 rounded-2xl border border-teal-100">
-                                {item.productImage && (
-                                  <img
-                                    src={item.productImage}
-                                    alt={item.productName}
-                                    className="w-12 h-12 rounded-xl object-cover border border-slate-100 shadow-2xs shrink-0"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">
-                                    {item.productName}
-                                  </div>
-                                  <div className="flex items-center gap-2 text-[11px] text-teal-800 flex-wrap mt-0.5">
-                                    {item.selectedDesign && <span>🎨 {item.selectedDesign}</span>}
-                                    {item.selectedColor && <span>🌈 {item.selectedColor}</span>}
-                                    {item.selectedFormat && <span>📐 {item.selectedFormat}</span>}
-                                    <span className="font-bold text-slate-700">Cant: {item.quantity}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                            {apt.status !== 'cancelado' && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenAddProductToApartado(apt)}
-                                className="w-full py-2 rounded-xl border border-dashed border-teal-300 text-teal-700 text-xs font-bold hover:bg-teal-50 transition flex items-center justify-center gap-1.5"
-                              >
-                                <PlusCircle className="w-3.5 h-3.5" />
-                                Agregar otro producto a esta cuenta
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Progress Bar & Financials */}
-                          <div className="space-y-2 mb-3">
-                            <div className="flex justify-between text-xs font-semibold">
-                              <span className="text-slate-600">Total: {currency}{apt.totalPrice.toFixed(2)}</span>
-                              <span className="text-teal-700">Abonado: {currency}{apt.totalAbonado.toFixed(2)} ({percentPaid}%)</span>
-                            </div>
-                            <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
-                              <div 
-                                className={`h-full transition-all duration-500 rounded-full ${
-                                  isLiquidado ? 'bg-emerald-500' : 'bg-gradient-to-r from-teal-400 to-rose-400'
-                                }`}
-                                style={{ width: `${percentPaid}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Saldo Pendiente Big Callout */}
-                          <div className={`p-3 rounded-2xl flex items-center justify-between ${
-                            isLiquidado 
-                              ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' 
-                              : 'bg-rose-50 text-rose-950 border border-rose-200'
-                          }`}>
-                            <div className="flex items-center gap-2">
-                              {isLiquidado ? (
-                                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                              ) : (
-                                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-                              )}
-                              <span className="text-xs font-bold">
-                                {isLiquidado ? '¡Totalmente Liquidado!' : 'Saldo Pendiente por Pagar:'}
-                              </span>
-                            </div>
-                            <span className="text-base sm:text-lg font-black">
-                              {currency}{apt.saldoPendiente.toFixed(2)}
-                            </span>
-                          </div>
-
-                          {/* Abonos History Mini */}
-                          {apt.abonos && apt.abonos.length > 0 && (
-                            <div className="mt-3 pt-2 border-t border-slate-100">
-                              <span className="text-[11px] font-bold text-slate-500 block mb-1">
-                                Historial de Abonos ({apt.abonos.length}):
-                              </span>
-                              <div className="space-y-1 max-h-20 overflow-y-auto pr-1 text-[11px]">
-                                {apt.abonos.map((abn) => (
-                                  <div key={abn.id} className="flex justify-between items-center text-slate-600 bg-slate-50 px-2 py-1 rounded-lg">
-                                    <span>{new Date(abn.date).toLocaleDateString('es-MX')} - {abn.note || 'Abono'}</span>
-                                    <span className="font-bold text-emerald-700">+{currency}{abn.amount.toFixed(2)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {/* Abono Button */}
-                            {apt.saldoPendiente > 0 && apt.status !== 'cancelado' && (
-                              <button
-                                onClick={() => onOpenAbonoModal(apt)}
-                                className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-2xs transition flex items-center gap-1"
-                              >
-                                <DollarSign className="w-3.5 h-3.5" />
-                                <span>Abonar</span>
-                              </button>
-                            )}
-
-                            {/* Mark as Delivered */}
-                            {isLiquidado && apt.status !== 'entregado' && (
-                              <button
-                                onClick={() => onUpdateApartadoStatus(apt.id, 'entregado')}
-                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition flex items-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Entregar</span>
-                              </button>
-                            )}
-
-                            {/* WhatsApp Reminder */}
-                            <button
-                              onClick={() => handleSendWhatsAppReminder(apt)}
-                              className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1"
-                              title="Enviar recordatorio de saldo por WhatsApp"
-                            >
-                              <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                              <span className="hidden sm:inline">WhatsApp</span>
-                            </button>
-                          </div>
-
-                          {/* Delete */}
-                          <button
-                            onClick={() => {
-                              setConfirmModal({
-                                isOpen: true,
-                                title: 'Eliminar Apartado',
-                                message: `¿Estás segura de eliminar el apartado de ${apt.clientName}?`,
-                                onConfirm: () => {
-                                  onDeleteApartado(apt.id);
-                                  setConfirmModal(null);
-                                },
-                              });
-                            }}
-                            className="p-2 text-rose-600 bg-rose-50 border border-rose-200 hover:text-rose-700 hover:bg-rose-100 rounded-xl transition shrink-0"
-                            title="Eliminar apartado"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-            </div>
-          )}
-
-          {/* ===================== TAB 2: VENTAS POR DÍA & GANANCIAS (REPORTE EXCEL) ===================== */}
-          {activeTab === 'sales_report' && (
-            <div className="space-y-6">
-              
-              {/* Financial KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                
-                {/* Total Venta Registrada */}
-                <div className="bg-white p-4 rounded-3xl border border-teal-100 shadow-xs">
-                  <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider block">
-                    Venta Total Registrada
-                  </span>
-                  <span className="text-2xl font-black text-slate-900 mt-1 block">
-                    {currency}{totalVentasRegistradas.toFixed(2)}
-                  </span>
-                  <span className="text-[11px] text-slate-500 mt-0.5 block">
-                    Total vendido en apartados y productos
-                  </span>
-                </div>
-
-                {/* Inversión / Costo Total */}
-                <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-xs">
-                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
-                    Inversión / Costo de Mercancía
-                  </span>
-                  <span className="text-2xl font-black text-slate-700 mt-1 block">
-                    {currency}{totalInversionVentasRealizadas.toFixed(2)}
-                  </span>
-                  <span className="text-[11px] text-slate-500 mt-0.5 block">
-                    Costo de compra de los artículos
-                  </span>
-                </div>
-
-                {/* Ganancia Neta Total */}
-                <div className="bg-gradient-to-br from-teal-50 to-rose-50 p-4 rounded-3xl border border-rose-200 shadow-xs">
-                  <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider block">
-                    Ganancia Neta Obtenida
-                  </span>
-                  <span className="text-2xl font-black text-rose-600 mt-1 block">
-                    {currency}{totalGananciaVentasRealizadas.toFixed(2)}
-                  </span>
-                  <span className="text-[11px] text-rose-800/80 font-bold mt-0.5 block">
-                    {totalVentasRegistradas > 0 ? `${Math.round((totalGananciaVentasRealizadas / totalVentasRegistradas) * 100)}% margen global` : '0%'}
-                  </span>
-                </div>
-
-                {/* Descargar Excel Card Action */}
-                <div className="bg-emerald-500 text-white p-4 rounded-3xl shadow-xs flex flex-col justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-emerald-100 uppercase tracking-wider block">
-                      Exportar Reporte
-                    </span>
-                    <h4 className="text-base font-black mt-0.5">
-                      Descargar Archivo Excel
-                    </h4>
-                  </div>
-                  <button
-                    onClick={handleExportExcel}
-                    className="mt-3 w-full py-2 bg-white text-emerald-800 hover:bg-emerald-50 rounded-xl text-xs font-extrabold shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Descargar .xlsx</span>
-                  </button>
-                </div>
-
-              </div>
-
-              {/* Daily Sales Breakdown Table */}
-              <div className="bg-white rounded-3xl border border-teal-100 overflow-hidden shadow-xs">
-                <div className="p-4 sm:p-5 border-b border-teal-100 bg-teal-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-                      Desglose de Ventas y Ganancias por Día
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Calcula artículos vendidos por día, costo de inversión, total vendido y ganancia
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleExportExcel}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs transition flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    <span>Exportar esta tabla a Excel</span>
-                  </button>
-                </div>
-
-                {dailySalesReport.length === 0 ? (
-                  <div className="p-10 text-center text-slate-500 text-xs">
-                    No hay ventas registradas todavía. Los apartados y ventas aparecerán aquí automáticamente agrupados por fecha.
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs sm:text-sm">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
-                        <tr>
-                          <th className="py-3 px-4">Fecha</th>
-                          <th className="py-3 px-3 text-center">Artículos Vendidos</th>
-                          <th className="py-3 px-3">Inversión (Costo)</th>
-                          <th className="py-3 px-3">Venta Total</th>
-                          <th className="py-3 px-3">Recaudado (Abonos)</th>
-                          <th className="py-3 px-4 text-right">Ganancia Neta</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {dailySalesReport.map((day) => {
-                          const marginPercent = day.totalVenta > 0 
-                            ? Math.round((day.gananciaEstimada / day.totalVenta) * 100) 
-                            : 0;
-
-                          return (
-                            <tr key={day.date} className="hover:bg-teal-50/20 transition">
-                              <td className="py-3 px-4 font-bold text-slate-900">
-                                {day.date}
-                              </td>
-                              <td className="py-3 px-3 text-center">
-                                <span className="px-2.5 py-1 rounded-full bg-teal-50 text-teal-800 font-extrabold text-xs">
-                                  {day.itemsCount} piezas
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-slate-600 font-semibold">
-                                {currency}{day.totalInversion.toFixed(2)}
-                              </td>
-                              <td className="py-3 px-3 font-bold text-slate-900">
-                                {currency}{day.totalVenta.toFixed(2)}
-                              </td>
-                              <td className="py-3 px-3 text-emerald-700 font-semibold">
-                                {currency}{day.totalRecaudado.toFixed(2)}
-                              </td>
-                              <td className="py-3 px-4 text-right">
-                                <span className="font-extrabold text-rose-600 block text-sm">
-                                  +{currency}{day.gananciaEstimada.toFixed(2)}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-medium">
-                                  ({marginPercent}% margen)
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-            </div>
-          )}
-
-          {/* ===================== TAB 3: INVENTARIO & UBICACIÓN EN PESTAÑAS ===================== */}
-          {activeTab === 'inventory' && (
-            <div className="space-y-5">
-              
-              {/* Financial Inventory Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                
-                {/* Inversión en Stock */}
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Inversión Total en Stock
-                  </span>
-                  <span className="text-xl font-black text-slate-800 mt-0.5 block">
-                    {currency}{totalInversionInventario.toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    Costo acumulado de las existencias actuales
-                  </span>
-                </div>
-
-                {/* Valor de Venta en Stock */}
-                <div className="bg-white p-4 rounded-2xl border border-teal-100 shadow-2xs">
-                  <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider block">
-                    Valor de Venta en Stock
-                  </span>
-                  <span className="text-xl font-black text-teal-800 mt-0.5 block">
-                    {currency}{totalValorVentaInventario.toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-teal-600">
-                    Monto total si se vende todo el inventario
-                  </span>
-                </div>
-
-                {/* Ganancia Potencial */}
-                <div className="bg-gradient-to-br from-teal-50 to-rose-50 p-4 rounded-2xl border border-rose-200 shadow-2xs">
-                  <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider block">
-                    Ganancia Proyectada del Stock
-                  </span>
-                  <span className="text-xl font-black text-rose-600 mt-0.5 block">
-                    {currency}{totalGananciaPotencialInventario.toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-rose-800 font-bold">
-                    Margen bruto si se comercializa todo
-                  </span>
-                </div>
-
-              </div>
-
-              {/* Action Bar */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-teal-100 shadow-2xs">
-                
-                {/* Search */}
-                <div className="relative flex-1 max-w-sm">
-                  <Search className="w-4 h-4 text-teal-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
-                    placeholder="Buscar producto por nombre..."
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                  />
-                </div>
-
-                {/* Category select filter */}
-                <select
-                  value={productCategoryFilter}
-                  onChange={(e) => setProductCategoryFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                >
-                  <option value="Todas">Todas las categorías</option>
-                  {config.categories.filter(c => c !== 'Todas' && c !== 'Todos').map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-
-                <div className="flex items-center gap-2">
-                  {/* Export Excel Button */}
-                  <button
-                    onClick={handleExportExcel}
-                    className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
-                    title="Exportar inventario y costos a Excel"
-                  >
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                    <span>Excel</span>
-                  </button>
-
-                  {/* Add New Product Button */}
-                  <button
-                    id="admin-add-product-btn"
-                    onClick={onOpenNewProductModal}
-                    className="px-4 py-2 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition flex items-center justify-center gap-1.5 shrink-0"
-                  >
-                    <Plus className="w-4 h-4" />
-                    + Nuevo Producto
-                  </button>
-                </div>
-
-              </div>
-
-              {/* Products Table with Quick Category Relocation Dropdown */}
-              <div className="bg-white rounded-3xl border border-teal-100 overflow-hidden shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs sm:text-sm">
-                    <thead className="bg-teal-50/70 border-b border-teal-100 text-teal-950 font-bold">
-                      <tr>
-                        <th className="py-3 px-4">Producto</th>
-                        <th className="py-3 px-3">Pestaña / Categoría</th>
-                        <th className="py-3 px-3">Costo (Inversión)</th>
-                        <th className="py-3 px-3">Precio Venta</th>
-                        <th className="py-3 px-3">Ganancia / Margen</th>
-                        <th className="py-3 px-3">Stock</th>
-                        <th className="py-3 px-4 text-right">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredProducts.map((p) => {
-                        const img = p.designs?.[0]?.imageUrl || '';
-                        const cost = p.costPrice ?? null;
-                        const profit = cost !== null ? (p.price - cost) : null;
-                        const profitPercent = (profit !== null && p.price > 0) ? Math.round((profit / p.price) * 100) : null;
-
-                        return (
-                          <tr key={p.id} className="hover:bg-teal-50/30 transition">
-                            {/* Product & Photo */}
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-3">
-                                {img && (
-                                  <img
-                                    src={img}
-                                    alt={p.name}
-                                    className="w-11 h-11 rounded-xl object-cover border border-slate-100 shadow-2xs shrink-0"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                )}
-                                <div className="min-w-0">
-                                  <div className="font-bold text-slate-900 truncate max-w-xs">{p.name}</div>
-                                  <div className="text-[11px] text-teal-700 font-semibold">
-                                    {p.designs?.length || 1} diseño(s) &bull; {p.colors?.length || 0} color(es)
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-
-                            {/* Quick Category Relocation Dropdown */}
-                            <td className="py-3 px-3">
-                              <select
-                                value={p.category}
-                                onChange={(e) => handleQuickCategoryChange(p.id, e.target.value)}
-                                className="px-2 py-1 bg-teal-50/80 hover:bg-teal-100 text-teal-900 border border-teal-200 rounded-lg text-xs font-bold focus:outline-none focus:ring-1 focus:ring-teal-400 cursor-pointer"
-                                title="Cambiar a otra pestaña/categoría"
-                              >
-                                {config.categories.filter(c => c !== 'Todas' && c !== 'Todos').map(c => (
-                                  <option key={c} value={c}>{c}</option>
-                                ))}
-                              </select>
-                            </td>
-
-                            {/* Cost Price */}
-                            <td className="py-3 px-3">
-                              <span className="text-slate-600 font-semibold">
-                                {cost !== null ? `${currency}${cost.toFixed(2)}` : <span className="text-slate-400 italic">N/A</span>}
-                              </span>
-                            </td>
-
-                            {/* Selling Price */}
-                            <td className="py-3 px-3">
-                              <div className="font-black text-slate-900">
-                                {currency}{p.price.toFixed(2)}
-                              </div>
-                            </td>
-
-                            {/* Profit */}
-                            <td className="py-3 px-3">
-                              {profit !== null ? (
-                                <div>
-                                  <span className={`font-extrabold ${profit >= 0 ? 'text-teal-700' : 'text-rose-600'}`}>
-                                    +{currency}{profit.toFixed(2)}
-                                  </span>
-                                  {profitPercent !== null && (
-                                    <span className="text-[10px] font-bold text-slate-400 block">
-                                      {profitPercent}%
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-slate-400 text-xs">-</span>
-                              )}
-                            </td>
-
-                            {/* Stock with quick buttons */}
-                            <td className="py-3 px-3">
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => onQuickStockChange(p.id, -1)}
-                                  className="w-6 h-6 rounded-md bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-700 font-bold flex items-center justify-center text-xs cursor-pointer"
-                                  title="Restar 1"
-                                >
-                                  -
-                                </button>
-                                <span className={`font-bold w-6 text-center ${
-                                  p.stock <= 0 ? 'text-rose-600 font-black' : p.stock <= 3 ? 'text-amber-600' : 'text-slate-800'
-                                }`}>
-                                  {p.stock}
-                                </span>
-                                <button
-                                  onClick={() => onQuickStockChange(p.id, 1)}
-                                  className="w-6 h-6 rounded-md bg-slate-100 hover:bg-teal-100 hover:text-teal-800 text-slate-700 font-bold flex items-center justify-center text-xs cursor-pointer"
-                                  title="Sumar 1"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            </td>
-
-                            {/* Actions */}
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  onClick={() => onOpenEditProductModal(p)}
-                                  className="p-1.5 hover:bg-teal-100 text-teal-800 rounded-lg transition"
-                                  title="Editar producto completo (fotos, precios, costos)"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setConfirmModal({
-                                      isOpen: true,
-                                      title: 'Eliminar Producto',
-                                      message: `¿Estás segura de eliminar "${p.name}" del catálogo?`,
-                                      onConfirm: () => {
-                                        onDeleteProduct(p.id);
-                                        setConfirmModal(null);
-                                      },
-                                    });
-                                  }}
-                                  className="p-1.5 hover:bg-rose-100 text-rose-600 rounded-lg transition"
-                                  title="Eliminar producto"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* ===================== TAB 4: AJUSTES DE TIENDA ===================== */}
-          {activeTab === 'settings' && (
-            <div className="max-w-2xl mx-auto space-y-6">
-              
-              <div className="bg-white p-6 rounded-3xl border border-teal-100 shadow-xs">
-                <h3 className="font-bold text-slate-900 text-base mb-4 flex items-center gap-2">
-                  <Settings className="w-5 h-5 text-teal-600" />
-                  Información y Datos de la Tienda
-                </h3>
-
-                <form onSubmit={handleSaveSettings} className="space-y-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Nombre de la Tienda
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={storeName}
-                      onChange={(e) => setStoreName(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 font-semibold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Eslogan / Subtítulo
-                    </label>
-                    <input
-                      type="text"
-                      value={tagline}
-                      onChange={(e) => setTagline(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Banner de Anuncios Superior
-                    </label>
-                    <input
-                      type="text"
-                      value={announcementBanner}
-                      onChange={(e) => setAnnouncementBanner(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Número de WhatsApp para Pedidos y Contacto
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={whatsappNumber}
-                      onChange={(e) => setWhatsappNumber(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 font-semibold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
-                      Paleta de Colores de la Tienda (Kawaii Theme)
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => setThemePreference('tiffany-rose')}
-                        className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
-                          themePreference === 'tiffany-rose'
-                            ? 'bg-gradient-to-r from-teal-50 to-pink-50 border-pink-400 ring-2 ring-pink-200'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-lg">🎀</span>
-                          <span className="text-[10px] font-extrabold bg-gradient-to-r from-teal-500 to-pink-500 text-white px-2 py-0.5 rounded-full">
-                            RECOMENDADA
-                          </span>
-                        </div>
-                        <div className="mt-2">
-                          <div className="text-xs font-bold text-slate-900">Dúo Tiffany & Rosa</div>
-                          <div className="text-[10px] text-slate-500">Equilibrio perfecto dulce y tierno</div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setThemePreference('rosa')}
-                        className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
-                          themePreference === 'rosa'
-                            ? 'bg-pink-50 border-pink-400 ring-2 ring-pink-200'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-lg">🌸</span>
-                          <span className="text-[10px] font-extrabold bg-pink-500 text-white px-2 py-0.5 rounded-full">
-                            KAWAII
-                          </span>
-                        </div>
-                        <div className="mt-2">
-                          <div className="text-xs font-bold text-slate-900">Rosa Pastel Bonita</div>
-                          <div className="text-[10px] text-slate-500">Tierno estilo fresa & blush</div>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setThemePreference('tiffany')}
-                        className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
-                          themePreference === 'tiffany'
-                            ? 'bg-teal-50 border-teal-400 ring-2 ring-teal-200'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-lg">💎</span>
-                          <span className="text-[10px] font-extrabold bg-teal-600 text-white px-2 py-0.5 rounded-full">
-                            TIFFANY
-                          </span>
-                        </div>
-                        <div className="mt-2">
-                          <div className="text-xs font-bold text-slate-900">Tiffany Menta</div>
-                          <div className="text-[10px] text-slate-500">Fresco y elegante agua marina</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      PIN de Acceso Administradora (Seguridad Privada)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPin ? "text" : "password"}
-                        required
-                        value={adminPin}
-                        onChange={(e) => setAdminPin(e.target.value)}
-                        placeholder="••••"
-                        className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-400 font-mono font-bold"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPin(!showPin)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
-                        title={showPin ? "Ocultar PIN" : "Ver PIN"}
-                      >
-                        {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                    <span className="text-[11px] text-slate-500 mt-1 block">
-                      Solo los administradores autorizados deben conocer este PIN.
-                    </span>
-                  </div>
-
-                  <div className="pt-3">
-                    <button
-                      type="submit"
-                      disabled={isSavingConfig}
-                      className="w-full py-3 bg-gradient-to-r from-teal-600 to-teal-500 hover:from-teal-700 hover:to-teal-600 text-white rounded-xl font-bold shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      {isSavingConfig ? 'Guardando...' : 'Guardar Ajustes'}
-                    </button>
-                  </div>
-
-                  {configSavedSuccess && (
-                    <div className="p-3 bg-teal-50 border border-teal-200 text-teal-800 rounded-xl text-xs font-bold text-center animate-fadeIn">
-                      ✨ ¡Configuración actualizada correctamente!
-                    </div>
-                  )}
-                </form>
-              </div>
-
-              {/* Manage Categories */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                <h3 className="font-bold text-slate-800 mb-1">Pestañas / Categorías</h3>
-                <p className="text-xs text-slate-500 mb-4">
-                  Estas son las pestañas que ven tus clientas en la tienda. Puedes eliminar las que no uses (solo si ningún producto la tiene asignada).
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {config.categories.filter(c => c !== 'Todas' && c !== 'Todos').map(cat => (
-                    <span
-                      key={cat}
-                      className="flex items-center gap-2 pl-3 pr-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700"
-                    >
-                      {cat}
-                      <button
-                        type="button"
-                        onClick={() => setConfirmModal({
-                          isOpen: true,
-                          title: 'Eliminar Categoría',
-                          message: `¿Seguro que quieres eliminar la pestaña "${cat}"? Esto solo funciona si ningún producto la está usando.`,
-                          onConfirm: () => {
-                            onDeleteCategory(cat);
-                            setConfirmModal(null);
-                          },
-                        })}
-                        className="text-slate-400 hover:text-rose-600 cursor-pointer"
-                        title={`Eliminar categoría ${cat}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Reset to initial data */}
-              <div className="bg-rose-50/50 p-6 rounded-3xl border border-rose-200">
-                <h4 className="text-sm font-bold text-rose-900 mb-1">
-                  Zona de Restauración
-                </h4>
-                <p className="text-xs text-rose-700 mb-4">
-                  Restaura los productos iniciales y catálogo oficial si deseas reiniciar las pruebas.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfirmModal({
-                      isOpen: true,
-                      title: 'Restaurar Datos Iniciales',
-                      message: '¿Estás segura de restaurar los productos iniciales del catálogo?',
-                      onConfirm: () => {
-                        onResetToDefaults();
-                        setConfirmModal(null);
-                      },
-                    });
-                  }}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Restaurar Catálogo Inicial</span>
-                </button>
-              </div>
-
-            </div>
-          )}
-
-        </div>
-      </div>
-
-      {/* Confirmation Modal */}
-      {confirmModal && confirmModal.isOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-teal-100 text-center animate-fadeIn">
-            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
-              <AlertCircle className="w-6 h-6" />
-            </div>
-            <h3 className="font-bold text-slate-900 text-base mb-1">
-              {confirmModal.title}
-            </h3>
-            <p className="text-xs text-slate-600 mb-5">
-              {confirmModal.message}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmModal(null)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmModal.onConfirm}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-300 ${
+      currentTheme === 'rosa' 
+        ? 'bg-[#fff5f8] text-slate-900 selection:bg-pink-200 selection:text-pink-900'
+        : currentTheme === 'tiffany'
+        ? 'bg-[#f0fdfa] text-slate-900 selection:bg-teal-200 selection:text-teal-900'
+        : 'bg-gradient-to-b from-[#fff5f8] via-[#f0fdfa]/50 to-[#fff8fb] text-slate-900 selection:bg-pink-200 selection:text-teal-950'
+    }`}>
+      
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className={`fixed bottom-5 right-5 z-50 text-white text-xs sm:text-sm font-bold py-3 px-5 rounded-2xl shadow-xl animate-slideUp flex items-center gap-2.5 ${
+          currentTheme === 'rosa' 
+            ? 'bg-gradient-to-r from-pink-600 to-rose-500 border border-pink-400'
+            : currentTheme === 'tiffany'
+            ? 'bg-gradient-to-r from-teal-700 to-teal-600 border border-teal-500'
+            : 'bg-gradient-to-r from-teal-700 via-teal-600 to-pink-600 border border-pink-300'
+        }`}>
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          <span>{toastMessage}</span>
         </div>
       )}
 
+      {/* Main Header */}
+      <Header
+        config={config}
+        activeCategory={activeCategory}
+        onSelectCategory={(cat) => {
+          setActiveCategory(cat);
+          setShowOnlyFavorites(false);
+          setShowOnlyNew(false);
+          setShowOnlyOffers(false);
+        }}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        favoritesCount={favorites.length}
+        cartCount={cart.reduce((s, i) => s + i.quantity, 0)}
+        onOpenCart={() => setIsCartOpen(true)}
+        onOpenPdfModal={() => setIsPdfModalOpen(true)}
+        isAdmin={isAdminLoggedIn}
+        onOpenAdminLogin={() => {
+          if (isAdminLoggedIn) {
+            setIsAdminPanelOpen(true);
+          } else {
+            setIsAdminLoginModalOpen(true);
+          }
+        }}
+        onOpenAdminPanel={() => setIsAdminPanelOpen(true)}
+        onLogoutAdmin={() => {
+          setIsAdminLoggedIn(false);
+          setIsAdminPanelOpen(false);
+          showToast('Sesión de administradora cerrada');
+        }}
+        showOnlyFavorites={showOnlyFavorites}
+        onToggleFavoritesFilter={() => {
+          setShowOnlyFavorites(!showOnlyFavorites);
+          if (!showOnlyFavorites) {
+            setShowOnlyNew(false);
+            setShowOnlyOffers(false);
+            setActiveCategory('Todas');
+          }
+        }}
+        showOnlyNew={showOnlyNew}
+        onToggleNewFilter={() => {
+          setShowOnlyNew(!showOnlyNew);
+          if (!showOnlyNew) {
+            setShowOnlyFavorites(false);
+            setShowOnlyOffers(false);
+          }
+        }}
+        showOnlyOffers={showOnlyOffers}
+        onToggleOffersFilter={() => {
+          setShowOnlyOffers(!showOnlyOffers);
+          if (!showOnlyOffers) {
+            setShowOnlyFavorites(false);
+            setShowOnlyNew(false);
+          }
+        }}
+        showOnlyInStock={showOnlyInStock}
+        onToggleInStockFilter={() => setShowOnlyInStock(!showOnlyInStock)}
+        apartadosCount={activeApartadosCount}
+        currentTheme={currentTheme}
+        onSelectTheme={handleSelectTheme}
+      />
+
+      {/* Admin Subheader Bar */}
+      {isAdminLoggedIn && (
+        <section className={`border-b px-4 sm:px-6 lg:px-8 py-3.5 no-print shadow-2xs transition-colors ${
+          currentTheme === 'rosa'
+            ? 'bg-pink-50 border-pink-200'
+            : currentTheme === 'tiffany'
+            ? 'bg-teal-50 border-teal-200'
+            : 'bg-slate-50 border-slate-200'
+        }`}>
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            
+            {/* Left Title & Description */}
+            <div className="flex items-center gap-3">
+              <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl text-white flex items-center justify-center shadow-xs shrink-0 ${
+                currentTheme === 'rosa' ? 'bg-pink-600' : 'bg-teal-700'
+              }`}>
+                <Shield className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className={`text-xl sm:text-2xl font-serif font-black tracking-tight leading-none ${
+                    currentTheme === 'rosa' ? 'text-pink-950' : 'text-teal-950'
+                  }`}>
+                    Panel de Administración
+                  </h2>
+                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border uppercase tracking-wide ${
+                    currentTheme === 'rosa' 
+                      ? 'bg-pink-100 text-pink-800 border-pink-300' 
+                      : currentTheme === 'tiffany'
+                      ? 'bg-teal-100 text-teal-800 border-teal-200'
+                      : 'bg-teal-50 text-teal-900 border-teal-200'
+                  }`}>
+                    MODO DUEÑA 🎀
+                  </span>
+                </div>
+                <p className={`text-xs font-medium mt-0.5 ${
+                  currentTheme === 'rosa' ? 'text-pink-800' : 'text-teal-800'
+                }`}>
+                  Control de costos iniciales, precios de venta, ganancias netas, catálogo en vivo y apartados.
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons Row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <a
+                href={formattedWhatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`px-3.5 sm:px-4 py-2 rounded-full font-bold text-xs border flex items-center gap-1.5 transition shadow-2xs ${
+                  currentTheme === 'rosa'
+                    ? 'bg-pink-100 hover:bg-pink-200 text-pink-800 border-pink-200'
+                    : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-200'
+                }`}
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>WhatsApp: {config.whatsappNumber || '55 1779 1232'}</span>
+                <ExternalLink className="w-3 h-3 ml-0.5 opacity-70" />
+              </a>
+
+              <a
+                href={`tel:${cleanPhone}`}
+                className="px-3.5 sm:px-4 py-2 rounded-full bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs border border-slate-200 flex items-center gap-1.5 transition shadow-2xs"
+              >
+                <Phone className="w-3.5 h-3.5 text-slate-700" />
+                <span>Llamar: {config.whatsappNumber || '55 1779 1232'}</span>
+              </a>
+
+              <button
+                onClick={() => {
+                  setProductToEdit(null);
+                  setIsProductFormOpen(true);
+                }}
+                className={`px-4 py-2 rounded-full text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer ${
+                  currentTheme === 'rosa'
+                    ? 'bg-pink-600 hover:bg-pink-700'
+                    : 'bg-teal-600 hover:bg-teal-700'
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nuevo Producto</span>
+              </button>
+
+              <button
+                onClick={() => setIsAdminPanelOpen(true)}
+                className={`px-4 py-2 rounded-full bg-white font-bold text-xs border flex items-center gap-1.5 transition shadow-2xs cursor-pointer ${
+                  currentTheme === 'rosa'
+                    ? 'hover:bg-pink-50 text-pink-900 border-pink-200'
+                    : 'hover:bg-teal-50 text-teal-900 border-teal-200'
+                }`}
+              >
+                <Bookmark className={`w-3.5 h-3.5 ${currentTheme === 'rosa' ? 'text-pink-600' : 'text-teal-600'}`} />
+                <span>Ver Catálogo / Apartados</span>
+              </button>
+            </div>
+
+          </div>
+        </section>
+      )}
+
+      {/* Main Catalog View Container */}
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full">
+        
+        {/* Hero Card Banner (Tiffany & Rosa Kawaii Theme) */}
+        <div className={`border rounded-3xl p-6 sm:p-10 relative overflow-hidden mb-8 shadow-xs transition-all ${
+          currentTheme === 'rosa'
+            ? 'bg-pink-50/80 border-pink-200'
+            : currentTheme === 'tiffany'
+            ? 'bg-teal-50/80 border-teal-200'
+            : 'bg-slate-50 border-slate-200'
+        }`}>
+          {/* Decorative Dot Grid on right half */}
+          <div 
+            className="absolute right-0 top-0 bottom-0 w-1/2 opacity-20 pointer-events-none" 
+            style={{ 
+              backgroundImage: currentTheme === 'rosa' 
+                ? 'radial-gradient(circle, #db2777 1.5px, transparent 1.5px)' 
+                : 'radial-gradient(circle, #0d9488 1.5px, transparent 1.5px)', 
+              backgroundSize: '20px 20px' 
+            }} 
+          />
+
+          <div className="relative z-10 max-w-2xl">
+            {/* Pill Badge */}
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white border border-slate-200 text-teal-900 font-bold text-xs mb-3.5 shadow-2xs">
+              <Sparkles className="w-3.5 h-3.5 text-pink-500" />
+              <span className="font-semibold text-slate-800">
+                Catálogo en línea • Disponibilidad en tiempo real ✨
+              </span>
+            </div>
+
+            {/* Large Serif Title */}
+            <h2 className={`text-3xl sm:text-4xl md:text-5xl font-serif font-black tracking-tight mb-2.5 leading-tight ${
+              currentTheme === 'rosa' 
+                ? 'text-pink-950' 
+                : currentTheme === 'tiffany' 
+                ? 'text-teal-950' 
+                : 'text-slate-900'
+            }`}>
+              {config.storeName || 'Papelería La Señora Cositas'}
+            </h2>
+
+            {/* Subtitle */}
+            <p className={`text-sm sm:text-base mb-6 font-medium leading-relaxed max-w-xl ${
+              currentTheme === 'rosa' ? 'text-pink-900' : 'text-teal-950'
+            }`}>
+              {config.tagline || 'Papelería bonita, novedades, arte y cositas especiales para inspirar tu día'}
+            </p>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => setIsPdfModalOpen(true)}
+                className={`px-5 py-3 rounded-full text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs transition cursor-pointer active:scale-95 ${
+                  currentTheme === 'rosa'
+                    ? 'bg-pink-600 hover:bg-pink-700'
+                    : 'bg-teal-600 hover:bg-teal-700'
+                }`}
+              >
+                <FileDown className="w-4 h-4" />
+                <span>Descargar Catálogo PDF</span>
+              </button>
+
+              <a
+                href={formattedWhatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`px-5 py-3 rounded-full text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs transition active:scale-95 ${
+                  currentTheme === 'rosa'
+                    ? 'bg-pink-500 hover:bg-pink-600'
+                    : 'bg-teal-700 hover:bg-teal-800'
+                }`}
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>Escribir por WhatsApp ({config.whatsappNumber || '55 1779 1232'})</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* Section Heading & Active Filters */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex items-center gap-2.5">
+            <h3 className={`text-xl sm:text-2xl font-serif font-black tracking-tight ${
+              currentTheme === 'rosa' ? 'text-pink-950' : 'text-[#134e4a]'
+            }`}>
+              {showOnlyFavorites 
+                ? '❤️ Mis Artículos Favoritos' 
+                : showOnlyNew 
+                ? '🌟 Nuevas Llegadas y Novedades' 
+                : showOnlyOffers 
+                ? '🏷️ Ofertas y Descuentos' 
+                : activeCategory === 'Todas' || activeCategory === 'Todos'
+                ? 'Catálogo de Productos' 
+                : activeCategory}
+            </h3>
+            <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+              currentTheme === 'rosa'
+                ? 'bg-pink-100 text-pink-800 border-pink-200'
+                : 'bg-[#ccfbf1] text-[#0f766e] border-teal-200'
+            }`}>
+              {filteredProducts.length} {filteredProducts.length === 1 ? 'producto' : 'productos'}
+            </span>
+          </div>
+
+          {/* If filtering, show clear button */}
+          {(showOnlyFavorites || showOnlyNew || showOnlyOffers || showOnlyInStock || (activeCategory !== 'Todas' && activeCategory !== 'Todos') || searchQuery) && (
+            <button
+              onClick={() => {
+                setShowOnlyFavorites(false);
+                setShowOnlyNew(false);
+                setShowOnlyOffers(false);
+                setShowOnlyInStock(false);
+                setActiveCategory('Todas');
+                setSearchQuery('');
+              }}
+              className={`text-xs font-bold underline cursor-pointer ${
+                currentTheme === 'rosa' ? 'text-pink-600 hover:text-pink-700' : 'text-[#0d9488] hover:text-[#0f766e]'
+              }`}
+            >
+              Ver todos los productos
+            </button>
+          )}
+        </div>
+
+        {/* Empty State */}
+        {filteredProducts.length === 0 ? (
+          <div className="bg-white rounded-3xl border border-teal-100 p-12 text-center max-w-md mx-auto my-8 shadow-xs">
+            <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center mx-auto mb-4 text-teal-500">
+              <PackageSearch className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">
+              No se encontraron artículos
+            </h3>
+            <p className="text-xs text-slate-500 mb-6">
+              {showOnlyFavorites
+                ? 'Aún no has agregado productos a tus favoritos. Haz clic en el corazón de cualquier artículo para guardarlo aquí.'
+                : 'Intenta con otra palabra clave o selecciona otra categoría en la parte superior.'}
+            </p>
+            <button
+              onClick={() => {
+                setShowOnlyFavorites(false);
+                setShowOnlyNew(false);
+                setShowOnlyOffers(false);
+                setShowOnlyInStock(false);
+                setActiveCategory('Todas');
+                setSearchQuery('');
+              }}
+              className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-xs transition"
+            >
+              Ver todo el Catálogo
+            </button>
+          </div>
+        ) : (
+          /* Products Grid */
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+            {filteredProducts.map((product) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                currency={config.currency}
+                isFavorite={favorites.includes(product.id)}
+                onToggleFavorite={handleToggleFavorite}
+                onOpenDetail={(prod, design) => {
+                  setSelectedProductForDetail({ product: prod, initialDesign: design });
+                }}
+                onOpenApartar={(prod, design) => {
+                  setApartadoTarget({ product: prod, design });
+                }}
+                onAddToCart={(prod, design) => {
+                  handleAddToCart(prod, design);
+                }}
+                isAdmin={isAdminLoggedIn}
+                onEditProduct={(prod) => {
+                  setProductToEdit(prod);
+                  setIsProductFormOpen(true);
+                }}
+                onQuickStockChange={handleQuickStockChange}
+              />
+            ))}
+          </div>
+        )}
+
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-auto border-t border-teal-100 bg-white py-8 px-4 text-center text-xs text-slate-500 no-print">
+        <div className="max-w-7xl mx-auto space-y-2">
+          <p className="font-bold text-teal-900 text-sm">
+            {config.storeName}
+          </p>
+          <p className="text-slate-500">
+            {config.tagline} &bull; Catálogo en línea con sistema de apartados y pagos a plazos
+          </p>
+          <p className="text-[11px] text-teal-700 font-semibold pt-1">
+            Pedidos y dudas por WhatsApp: {config.whatsappNumber}
+          </p>
+        </div>
+      </footer>
+
+      {/* ---------------- MODALS ---------------- */}
+
+      {/* Product Detail Modal */}
+      <ProductModal
+        product={selectedProductForDetail?.product || null}
+        initialDesign={selectedProductForDetail?.initialDesign}
+        isOpen={!!selectedProductForDetail}
+        onClose={() => setSelectedProductForDetail(null)}
+        currency={config.currency}
+        whatsappNumber={config.whatsappNumber}
+        isFavorite={selectedProductForDetail ? favorites.includes(selectedProductForDetail.product.id) : false}
+        onToggleFavorite={handleToggleFavorite}
+        onOpenApartar={(product, design, color, format, quantity) => {
+          setApartadoTarget({ product, design, color, format, quantity });
+        }}
+        onAddToCart={(product, design, color, format, quantity) => {
+          handleAddToCart(product, design, color, format, quantity);
+        }}
+      />
+
+      {/* Client Apartado Modal */}
+      <ApartadoModal
+        product={apartadoTarget?.product || null}
+        selectedDesign={apartadoTarget?.design}
+        selectedColor={apartadoTarget?.color}
+        selectedFormat={apartadoTarget?.format}
+        quantity={apartadoTarget?.quantity || 1}
+        isOpen={!!apartadoTarget}
+        onClose={() => setApartadoTarget(null)}
+        currency={config.currency}
+        whatsappNumber={config.whatsappNumber}
+        onSubmitApartado={handleSubmitApartado}
+      />
+
+      {/* Cart Drawer */}
+      <CartDrawer
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        items={cart}
+        onUpdateQuantity={handleUpdateCartQuantity}
+        onRemoveItem={handleRemoveCartItem}
+        onClearCart={handleClearCart}
+        currency={config.currency}
+        whatsappNumber={config.whatsappNumber}
+        onApartarEntireCart={() => {
+          if (cart.length > 0) {
+            const first = cart[0];
+            setApartadoTarget({
+              product: first.product,
+              design: first.selectedDesign,
+              color: first.selectedColor,
+              format: first.selectedFormat,
+              quantity: first.quantity,
+            });
+            setIsCartOpen(false);
+          }
+        }}
+      />
+
+      {/* Admin Login PIN Modal */}
+      <AdminLoginModal
+        isOpen={isAdminLoginModalOpen}
+        onClose={() => setIsAdminLoginModalOpen(false)}
+        adminPin={config.adminPin}
+        onSuccessLogin={() => {
+          setIsAdminLoggedIn(true);
+          setIsAdminPanelOpen(true);
+          showToast('🔐 Bienvenida al Panel de Administración');
+        }}
+      />
+
+      {/* Admin Panel Dashboard Modal */}
+      <AdminPanel
+        isOpen={isAdminPanelOpen}
+        onClose={() => setIsAdminPanelOpen(false)}
+        products={products}
+        apartados={apartados}
+        config={config}
+        onDeleteCategory={handleDeleteCategory}
+        onOpenAddProductToApartado={(apt) => setApartadoParaAgregarProducto(apt)}
+        currency={config.currency}
+        onOpenNewProductModal={() => {
+          setProductToEdit(null);
+          setIsProductFormOpen(true);
+        }}
+        onOpenEditProductModal={(prod) => {
+          setProductToEdit(prod);
+          setIsProductFormOpen(true);
+        }}
+        onSaveProduct={handleSaveProduct}
+        onDeleteProduct={handleDeleteProduct}
+        onQuickStockChange={handleQuickStockChange}
+        onOpenAbonoModal={(apt) => {
+          setApartadoForAbono(apt);
+          setIsAbonoModalOpen(true);
+        }}
+        onOpenManualApartadoModal={() => setIsManualApartadoOpen(true)}
+        onUpdateApartadoStatus={handleUpdateApartadoStatus}
+        onDeleteApartado={handleDeleteApartado}
+        onUpdateConfig={handleUpdateConfig}
+        onResetToDefaults={handleResetToDefaults}
+      />
+
+      {/* Product Add / Edit Modal */}
+      <ProductFormModal
+        isOpen={isProductFormOpen}
+        onClose={() => setIsProductFormOpen(false)}
+        productToEdit={productToEdit}
+        categories={config.categories}
+        onSaveProduct={handleSaveProduct}
+        currency={config.currency}
+      />
+
+      {/* Abono Payment Registration Modal */}
+      <AbonoModal
+        isOpen={isAbonoModalOpen}
+        onClose={() => setIsAbonoModalOpen(false)}
+        apartado={apartadoForAbono}
+        currency={config.currency}
+        onSaveAbono={handleSaveAbono}
+        whatsappNumber={config.whatsappNumber}
+      />
+
+      {/* Manual Apartado Modal for In-Person / Phone Orders */}
+      <ApartadoFormModal
+        isOpen={isManualApartadoOpen}
+        onClose={() => setIsManualApartadoOpen(false)}
+        products={products}
+        currency={config.currency}
+        onSaveManualApartado={handleSubmitApartado}
+      />
+
+      {/* Add Another Product to an Existing Apartado (Admin only) */}
+      <ApartadoFormModal
+        isOpen={!!apartadoParaAgregarProducto}
+        onClose={() => setApartadoParaAgregarProducto(null)}
+        products={products}
+        currency={config.currency}
+        onSaveManualApartado={async () => {}}
+        existingApartado={apartadoParaAgregarProducto}
+        onAddProductToApartado={handleAddProductToApartado}
+      />
+
+      {/* PDF / Printable Catalog Modal */}
+      <PdfCatalogModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        products={products}
+        config={config}
+        currency={config.currency}
+        isAdmin={isAdminLoggedIn}
+      />
+
     </div>
   );
-};
+}
