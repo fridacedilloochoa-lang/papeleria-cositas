@@ -106,25 +106,165 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const remisionRef = React.useRef<HTMLDivElement>(null);
 
   const handleDownloadRemisionImage = async () => {
-    if (!remisionRef.current) return;
+    if (!remisionApartado) return;
     setIsDownloadingRemision(true);
     try {
-      // Cargamos html2canvas desde internet solo la primera vez que se necesita
-      if (!(window as any).html2canvas) {
-        await new Promise<void>((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error('No se pudo cargar la herramienta de imagen'));
-          document.body.appendChild(script);
-        });
+      const { folio, relacionados } = getRemisionGroup(remisionApartado);
+      const monthLabelRaw = new Date(remisionApartado.createdAt).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+      const monthLabel = monthLabelRaw.charAt(0).toUpperCase() + monthLabelRaw.slice(1);
+      const totalGeneral = relacionados.reduce((sum, a) => sum + a.totalPrice, 0);
+      const totalAbonadoGeneral = relacionados.reduce((sum, a) => sum + a.totalAbonado, 0);
+      const saldoGeneral = relacionados.reduce((sum, a) => sum + a.saldoPendiente, 0);
+
+      const rows = relacionados.map(apt => {
+        const items = apt.items && apt.items.length > 0 ? apt.items : [{
+          id: `legacy-${apt.id}`,
+          productName: apt.productName,
+          quantity: apt.quantity,
+          subtotal: apt.totalPrice,
+        }];
+        return {
+          date: new Date(apt.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase(),
+          lines: items.map(item => ({
+            text: `${item.productName} x${item.quantity}`,
+            amount: `${currency}${Number(item.subtotal ?? 0).toFixed(2)}`,
+          })),
+        };
+      });
+
+      // Aseguramos que la tipografía elegante ya esté cargada antes de dibujar
+      try {
+        await document.fonts.load('64px "Mrs Saint Delafield"');
+        await document.fonts.ready;
+      } catch { /* si falla, seguimos con la fuente por defecto */ }
+
+      const scale = 2;
+      const width = 500;
+      const padding = 32;
+
+      // Calculamos la altura total necesaria
+      let height = padding * 2 + 70 + 26 + 20 + 46 + 20 + 46;
+      rows.forEach(r => { height += 18 + r.lines.length * 20 + 8; });
+      height += 20 + 90;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('No se pudo crear el lienzo');
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+
+      let cy = padding;
+
+      // Título
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#115e59';
+      ctx.font = '54px "Mrs Saint Delafield", cursive';
+      ctx.fillText(config.storeName, width / 2, cy + 40);
+      cy += 62;
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('N O T A   D E   R E M I S I Ó N', width / 2, cy);
+      cy += 18;
+
+      // Línea punteada
+      ctx.strokeStyle = '#99f6e4';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(padding, cy);
+      ctx.lineTo(width - padding, cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      cy += 18;
+
+      // Caja de Folio / Corte
+      ctx.fillStyle = '#f8fafc';
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.fillRect(padding, cy, width - padding * 2, 36);
+      ctx.strokeRect(padding, cy, width - padding * 2, 36);
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Folio: #${String(folio).padStart(4, '0')}`, padding + 12, cy + 23);
+      ctx.textAlign = 'right';
+      ctx.fillText(`Corte: ${monthLabel}`, width - padding - 12, cy + 23);
+      cy += 56;
+
+      // Cliente
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(remisionApartado.clientName, padding, cy);
+      cy += 18;
+      if (remisionApartado.clientPhone) {
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = '#64748b';
+        ctx.fillText(remisionApartado.clientPhone, padding, cy);
+        cy += 16;
       }
-      const html2canvas = (window as any).html2canvas;
-      const canvas = await html2canvas(remisionRef.current, { scale: 2, backgroundColor: '#ffffff' });
+      cy += 10;
+
+      // Pedidos del mes
+      rows.forEach((r) => {
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.textAlign = 'left';
+        ctx.fillText(r.date, padding, cy);
+        cy += 16;
+        r.lines.forEach((line) => {
+          ctx.font = '11px sans-serif';
+          ctx.fillStyle = '#334155';
+          ctx.textAlign = 'left';
+          ctx.fillText(line.text, padding, cy);
+          ctx.font = 'bold 11px sans-serif';
+          ctx.textAlign = 'right';
+          ctx.fillText(line.amount, width - padding, cy);
+          cy += 20;
+        });
+        cy += 8;
+      });
+
+      // Línea punteada
+      ctx.strokeStyle = '#99f6e4';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(padding, cy);
+      ctx.lineTo(width - padding, cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      cy += 24;
+
+      const drawTotalLine = (label: string, value: string, color: string, size = 13) => {
+        ctx.textAlign = 'left';
+        ctx.font = `bold ${size}px sans-serif`;
+        ctx.fillStyle = color;
+        ctx.fillText(label, padding, cy);
+        ctx.textAlign = 'right';
+        ctx.fillText(value, width - padding, cy);
+        cy += size + 10;
+      };
+
+      drawTotalLine('Total del mes:', `${currency}${totalGeneral.toFixed(2)}`, '#334155');
+      drawTotalLine('Abonado:', `${currency}${totalAbonadoGeneral.toFixed(2)}`, '#0f766e');
+      cy += 4;
+      ctx.strokeStyle = '#f1f5f9';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padding, cy);
+      ctx.lineTo(width - padding, cy);
+      ctx.stroke();
+      cy += 20;
+      drawTotalLine('Saldo pendiente:', `${currency}${saldoGeneral.toFixed(2)}`, '#e11d48', 16);
+
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
       link.href = dataUrl;
-      link.download = `Nota_Remision_${remisionApartado?.clientName.replace(/\s+/g, '_') || 'cliente'}.png`;
+      link.download = `Nota_Remision_${remisionApartado.clientName.replace(/\s+/g, '_')}.png`;
       link.click();
     } catch (err) {
       console.error('Error generando imagen de la nota:', err);
