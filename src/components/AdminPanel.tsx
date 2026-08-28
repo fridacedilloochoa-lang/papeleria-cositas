@@ -1593,52 +1593,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Nota de Remisión Modal */}
       {remisionApartado && (() => {
         const { folio, relacionados } = getRemisionGroup(remisionApartado);
-        const monthLabel = new Date(remisionApartado.createdAt + 'T00:00:00').toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+        const monthLabel = new Date(remisionApartado.createdAt).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
         const totalGeneral = relacionados.reduce((sum, a) => sum + a.totalPrice, 0);
         const totalAbonadoGeneral = relacionados.reduce((sum, a) => sum + a.totalAbonado, 0);
         const saldoGeneral = relacionados.reduce((sum, a) => sum + a.saldoPendiente, 0);
 
         return (
           <div className="fixed inset-0 z-60 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
-            <div className="bg-white rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-teal-100 relative">
+            <div className="bg-white rounded-3xl max-w-lg w-full max-h-[92vh] shadow-2xl border border-teal-100 relative flex flex-col overflow-hidden">
               <button
                 onClick={() => setRemisionApartado(null)}
-                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-500 transition"
+                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-500 transition z-10"
               >
                 <X className="w-5 h-5" />
               </button>
 
-              <div ref={remisionRef} className="p-6 sm:p-8 bg-white">
+              <div className="overflow-y-auto flex-1">
+                <div ref={remisionRef} className="p-6 sm:p-8" style={{ backgroundColor: '#ffffff' }}>
                 {/* Header */}
-                <div className="text-center mb-5 pb-4 border-b-2 border-dashed border-teal-100">
+                <div className="text-center mb-5 pb-4" style={{ borderBottom: '2px dashed #99f6e4' }}>
                   <h2
-                    style={{ fontFamily: "'Mrs Saint Delafield', cursive" }}
-                    className="text-4xl sm:text-5xl text-teal-800 mb-0.5 leading-none"
+                    style={{ fontFamily: "'Mrs Saint Delafield', cursive", color: '#115e59' }}
+                    className="text-4xl sm:text-5xl mb-0.5 leading-none"
                   >
                     {config.storeName}
                   </h2>
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold mt-1">
+                  <p className="text-[11px] uppercase tracking-[0.2em] font-bold mt-1" style={{ color: '#64748b' }}>
                     Nota de Remisión
                   </p>
                 </div>
 
                 {/* Folio & Mes */}
-                <div className="flex justify-between items-center text-xs mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5">
+                <div className="flex justify-between items-center text-xs mb-4 rounded-xl px-3.5 py-2.5" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
                   <div>
-                    <span className="text-slate-500 font-semibold">Folio: </span>
-                    <span className="font-black text-slate-900">#{String(folio).padStart(4, '0')}</span>
+                    <span className="font-semibold" style={{ color: '#64748b' }}>Folio: </span>
+                    <span className="font-black" style={{ color: '#0f172a' }}>#{String(folio).padStart(4, '0')}</span>
                   </div>
                   <div className="text-right">
-                    <span className="text-slate-500 font-semibold">Corte: </span>
-                    <span className="font-black text-slate-900 capitalize">{monthLabel}</span>
+                    <span className="font-semibold" style={{ color: '#64748b' }}>Corte: </span>
+                    <span className="font-black capitalize" style={{ color: '#0f172a' }}>{monthLabel}</span>
                   </div>
                 </div>
 
                 {/* Cliente */}
                 <div className="mb-4">
-                  <div className="font-bold text-slate-900 text-base">{remisionApartado.clientName}</div>
+                  <div className="font-bold text-base" style={{ color: '#0f172a' }}>{remisionApartado.clientName}</div>
                   {remisionApartado.clientPhone && (
-                    <div className="text-xs text-slate-500">{remisionApartado.clientPhone}</div>
+                    <div className="text-xs" style={{ color: '#64748b' }}>{remisionApartado.clientPhone}</div>
                   )}
                 </div>
 
@@ -1652,13 +1653,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       subtotal: apt.totalPrice,
                     }];
                     return (
-                      <div key={apt.id} className="border-b border-slate-100 pb-2.5">
-                        <div className="text-[10px] text-slate-400 font-bold mb-1">
+                      <div key={apt.id} className="pb-2.5" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <div className="text-[10px] font-bold mb-1" style={{ color: '#94a3b8' }}>
                           {new Date(apt.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
                         </div>
                         {items.map((item) => (
-                          <div key={item.id} className="flex justify-between text-xs py-0.5 text-slate-700">
-                            <span>{item.productName} <span className="text-slate-400">x{item.quantity}</span></span>
+                          <div key={item.id} className="flex justify-between text-xs py-0.5" style={{ color: '#334155' }}>
+                            <span>{item.productName} <span style={{ color: '#94a3b8' }}>x{item.quantity}</span></span>
                             <span className="font-semibold">{currency}{Number(item.subtotal ?? 0).toFixed(2)}</span>
                           </div>
                         ))}
@@ -1668,24 +1669,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 {/* Totales */}
-                <div className="pt-3 space-y-1.5 border-t-2 border-dashed border-teal-100">
+                <div className="pt-3 space-y-1.5" style={{ borderTop: '2px dashed #99f6e4' }}>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-600 font-semibold">Total del mes:</span>
-                    <span className="font-bold text-slate-900">{currency}{totalGeneral.toFixed(2)}</span>
+                    <span className="font-semibold" style={{ color: '#475569' }}>Total del mes:</span>
+                    <span className="font-bold" style={{ color: '#0f172a' }}>{currency}{totalGeneral.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-teal-700 font-semibold">Abonado:</span>
-                    <span className="font-bold text-teal-700">{currency}{totalAbonadoGeneral.toFixed(2)}</span>
+                    <span className="font-semibold" style={{ color: '#0f766e' }}>Abonado:</span>
+                    <span className="font-bold" style={{ color: '#0f766e' }}>{currency}{totalAbonadoGeneral.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between items-center pt-2 mt-1 border-t border-slate-100">
-                    <span className="text-rose-700 font-bold text-sm">Saldo pendiente:</span>
-                    <span className="font-black text-rose-600 text-lg">{currency}{saldoGeneral.toFixed(2)}</span>
+                  <div className="flex justify-between items-center pt-2 mt-1" style={{ borderTop: '1px solid #f1f5f9' }}>
+                    <span className="font-bold text-sm" style={{ color: '#be123c' }}>Saldo pendiente:</span>
+                    <span className="font-black text-lg" style={{ color: '#e11d48' }}>{currency}{saldoGeneral.toFixed(2)}</span>
                   </div>
+                </div>
                 </div>
               </div>
 
-              {/* Download as Image Button (outside the captured area) */}
-              <div className="px-6 sm:px-8 pb-6 sm:pb-8 pt-0">
+              {/* Download as Image Button (fijo abajo, fuera del \u00e1rea con scroll) */}
+              <div className="p-4 sm:p-5 border-t border-slate-100 bg-white shrink-0">
                 <button
                   type="button"
                   onClick={handleDownloadRemisionImage}
