@@ -102,6 +102,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     onConfirm: () => void;
   } | null>(null);
   const [remisionApartado, setRemisionApartado] = useState<Apartado | null>(null);
+  const [isDownloadingRemision, setIsDownloadingRemision] = useState(false);
+  const remisionRef = React.useRef<HTMLDivElement>(null);
+
+  const handleDownloadRemisionImage = async () => {
+    if (!remisionRef.current) return;
+    setIsDownloadingRemision(true);
+    try {
+      // Cargamos html2canvas desde internet solo la primera vez que se necesita
+      if (!(window as any).html2canvas) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('No se pudo cargar la herramienta de imagen'));
+          document.body.appendChild(script);
+        });
+      }
+      const html2canvas = (window as any).html2canvas;
+      const canvas = await html2canvas(remisionRef.current, { scale: 2, backgroundColor: '#ffffff' });
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `Nota_Remision_${remisionApartado?.clientName.replace(/\s+/g, '_') || 'cliente'}.png`;
+      link.click();
+    } catch (err) {
+      console.error('Error generando imagen de la nota:', err);
+      alert('No se pudo generar la imagen. Intenta de nuevo.');
+    } finally {
+      setIsDownloadingRemision(false);
+    }
+  };
 
   // Nota de Remisión: agrupa por cliente + mes (corte mensual, acumulativo dentro del mismo mes)
   const getClientKey = (a: Apartado) => (a.clientPhone && a.clientPhone.trim()) || a.clientName.trim().toLowerCase();
@@ -1577,7 +1608,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="p-6 sm:p-8">
+              <div ref={remisionRef} className="p-6 sm:p-8 bg-white">
                 {/* Header */}
                 <div className="text-center mb-5 pb-4 border-b-2 border-dashed border-teal-100">
                   <h2
@@ -1651,6 +1682,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <span className="font-black text-rose-600 text-lg">{currency}{saldoGeneral.toFixed(2)}</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Download as Image Button (outside the captured area) */}
+              <div className="px-6 sm:px-8 pb-6 sm:pb-8 pt-0">
+                <button
+                  type="button"
+                  onClick={handleDownloadRemisionImage}
+                  disabled={isDownloadingRemision}
+                  className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 disabled:opacity-60 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {isDownloadingRemision ? 'Generando imagen...' : 'Descargar como Imagen'}
+                </button>
               </div>
             </div>
           </div>
