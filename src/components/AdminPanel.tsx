@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Package, 
   Bookmark, 
@@ -101,6 +101,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  const [remisionApartado, setRemisionApartado] = useState<Apartado | null>(null);
+
+  // Nota de Remisión: agrupa por cliente + mes (corte mensual, acumulativo dentro del mismo mes)
+  const getClientKey = (a: Apartado) => (a.clientPhone && a.clientPhone.trim()) || a.clientName.trim().toLowerCase();
+  const getMonthKey = (a: Apartado) => (a.createdAt || '').slice(0, 7); // "AAAA-MM"
+
+  const folioMap = useMemo(() => {
+    const groups = new Map<string, string>(); // key -> fecha más antigua
+    apartados.forEach(a => {
+      if (a.status === 'cancelado') return;
+      const key = `${getClientKey(a)}|${getMonthKey(a)}`;
+      const existing = groups.get(key);
+      if (!existing || a.createdAt < existing) {
+        groups.set(key, a.createdAt);
+      }
+    });
+    const ordered = Array.from(groups.entries()).sort((x, y) => x[1].localeCompare(y[1]));
+    const map = new Map<string, number>();
+    ordered.forEach(([key], idx) => map.set(key, idx + 1));
+    return map;
+  }, [apartados]);
+
+  const getRemisionGroup = (apt: Apartado) => {
+    const key = `${getClientKey(apt)}|${getMonthKey(apt)}`;
+    const folio = folioMap.get(key) || 1;
+    const relacionados = apartados
+      .filter(a => a.status !== 'cancelado' && `${getClientKey(a)}|${getMonthKey(a)}` === key)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { folio, relacionados };
+  };
 
   if (!isOpen) return null;
 
@@ -840,6 +870,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
                               <span className="hidden sm:inline">WhatsApp</span>
                             </button>
+
+                            {/* Nota de Remisión */}
+                            <button
+                              onClick={() => setRemisionApartado(apt)}
+                              className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1"
+                              title="Ver nota de remisión del mes"
+                            >
+                              <Receipt className="w-3.5 h-3.5 text-slate-600" />
+                              <span className="hidden sm:inline">Nota</span>
+                            </button>
                           </div>
 
                           {/* Delete */}
@@ -1518,6 +1558,104 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         </div>
       </div>
+
+      {/* Nota de Remisión Modal */}
+      {remisionApartado && (() => {
+        const { folio, relacionados } = getRemisionGroup(remisionApartado);
+        const monthLabel = new Date(remisionApartado.createdAt + 'T00:00:00').toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+        const totalGeneral = relacionados.reduce((sum, a) => sum + a.totalPrice, 0);
+        const totalAbonadoGeneral = relacionados.reduce((sum, a) => sum + a.totalAbonado, 0);
+        const saldoGeneral = relacionados.reduce((sum, a) => sum + a.saldoPendiente, 0);
+
+        return (
+          <div className="fixed inset-0 z-60 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-teal-100 relative">
+              <button
+                onClick={() => setRemisionApartado(null)}
+                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-500 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="p-6 sm:p-8">
+                {/* Header */}
+                <div className="text-center mb-5 pb-4 border-b-2 border-dashed border-teal-100">
+                  <h2
+                    style={{ fontFamily: "'Mrs Saint Delafield', cursive" }}
+                    className="text-4xl sm:text-5xl text-teal-800 mb-0.5 leading-none"
+                  >
+                    {config.storeName}
+                  </h2>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 font-bold mt-1">
+                    Nota de Remisión
+                  </p>
+                </div>
+
+                {/* Folio & Mes */}
+                <div className="flex justify-between items-center text-xs mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5">
+                  <div>
+                    <span className="text-slate-500 font-semibold">Folio: </span>
+                    <span className="font-black text-slate-900">#{String(folio).padStart(4, '0')}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-slate-500 font-semibold">Corte: </span>
+                    <span className="font-black text-slate-900 capitalize">{monthLabel}</span>
+                  </div>
+                </div>
+
+                {/* Cliente */}
+                <div className="mb-4">
+                  <div className="font-bold text-slate-900 text-base">{remisionApartado.clientName}</div>
+                  {remisionApartado.clientPhone && (
+                    <div className="text-xs text-slate-500">{remisionApartado.clientPhone}</div>
+                  )}
+                </div>
+
+                {/* Pedidos del mes */}
+                <div className="space-y-3 mb-4">
+                  {relacionados.map((apt) => {
+                    const items = apt.items && apt.items.length > 0 ? apt.items : [{
+                      id: `legacy-${apt.id}`,
+                      productName: apt.productName,
+                      quantity: apt.quantity,
+                      subtotal: apt.totalPrice,
+                    }];
+                    return (
+                      <div key={apt.id} className="border-b border-slate-100 pb-2.5">
+                        <div className="text-[10px] text-slate-400 font-bold mb-1">
+                          {new Date(apt.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                        </div>
+                        {items.map((item) => (
+                          <div key={item.id} className="flex justify-between text-xs py-0.5 text-slate-700">
+                            <span>{item.productName} <span className="text-slate-400">x{item.quantity}</span></span>
+                            <span className="font-semibold">{currency}{Number(item.subtotal ?? 0).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Totales */}
+                <div className="pt-3 space-y-1.5 border-t-2 border-dashed border-teal-100">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-600 font-semibold">Total del mes:</span>
+                    <span className="font-bold text-slate-900">{currency}{totalGeneral.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-teal-700 font-semibold">Abonado:</span>
+                    <span className="font-bold text-teal-700">{currency}{totalAbonadoGeneral.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2 mt-1 border-t border-slate-100">
+                    <span className="text-rose-700 font-bold text-sm">Saldo pendiente:</span>
+                    <span className="font-black text-rose-600 text-lg">{currency}{saldoGeneral.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Confirmation Modal */}
       {confirmModal && confirmModal.isOpen && (
